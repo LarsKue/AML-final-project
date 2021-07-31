@@ -33,6 +33,8 @@ def main():
     print("========================================")
     print(testing.dtypes)
 
+    print(responses.max())
+
     # convert measures to one-hot
     # lb = LabelBinarizer()
     # responses2["L2"] = lb.fit_transform(responses2["Measure_L2"]).tolist()

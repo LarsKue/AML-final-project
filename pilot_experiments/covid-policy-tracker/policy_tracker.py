@@ -57,26 +57,15 @@ class PolicyTracker(pl.LightningModule):
         #  - y: R value
         #  - since dates differ in the two datasets, we need to merge them by assuming
         #  - that p, x, R are piecewise constant
+        responses, _, testing = data.fetch()
 
-
-
-        responses, responses2, testing = data.fetch()
-
-        responses2.load()
+        responses.load()
         testing.load()
 
-        responses2 = responses2.to_df()
+        responses = responses.to_df()
         testing = testing.to_df()
 
-        lb = LabelBinarizer()
-        responses2["L1"] = lb.fit_transform(responses2["Measure_L1"]).tolist()
-
-        print(responses2["L1"])
-
-        x = torch.Tensor(responses2["L1"].values)
-
-        print(x.shape)
-
+        x = None
         # TODO: add policies
         y = torch.Tensor(testing["reproduction_rate"].values)
 
@@ -85,24 +74,29 @@ class PolicyTracker(pl.LightningModule):
         return DataLoader(ds)
 
     def val_dataloader(self):
-        _, responses2, testing = data.fetch()
+        responses, _, testing = data.fetch()
 
-        responses2.load()
+        responses.load()
         testing.load()
 
-        responses2 = responses2.to_df()
+        responses = responses.to_df()
         testing = testing.to_df()
 
-        lb = LabelBinarizer()
-        responses2["L1"] = lb.fit_transform(responses2["Measure_L1"]).tolist()
-
-        print(responses2["L1"])
-
-        # x = torch.Tensor(testing["new_cases_smoothed_per_million"].values)
-        x = torch.Tensor(responses2["L1"].values)
-
+        x = None
         y = torch.Tensor(testing["reproduction_rate"].values)
 
         ds = TensorDataset(x, y)
 
         return DataLoader(ds)
+
+
+
+def to_one_hot(indices):
+    max_values = [3, 3, 2, 4, 2, 3, 2, 4, 2, 2, 2, 3, 2, 4, 5, 3]
+    offset = 0
+    oh = torch.zeros(sum(max_values))
+    for i, mv in zip(indices, max_values):
+        oh[offset + i] = 1.0
+        offset += mv
+
+    return oh

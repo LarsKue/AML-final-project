@@ -76,7 +76,7 @@ class GitHubData:
 
 def fetch():
     responses = GitHubData(user="OxCGRT", repo="covid-policy-tracker", branch="master", path="data/OxCGRT_latest.csv")
-    responses2 = GitHubData(user="amel-github", repo="covid19-interventionmeasures", branch="master", path="Version1/COVID19_non-pharmaceutical-interventions.csv")
+    responses2 = GitHubData(user="amel-github", repo="covid19-interventionmeasures", branch="master", path="COVID19_non-pharmaceutical-interventions_version2_utf8.csv")
     testing = GitHubData(user="owid", repo="covid-19-data", branch="master", path="public/data/owid-covid-data.csv")
 
     return responses, responses2, testing
