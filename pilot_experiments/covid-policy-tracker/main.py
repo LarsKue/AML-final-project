@@ -5,11 +5,9 @@ from sklearn.preprocessing import LabelBinarizer
 import pandas as pd
 from datetime import datetime, timedelta
 
-import torch
-import torch.nn as nn
-
 import data
 from policy_tracker import PolicyTracker
+from trainer import trainer
 
 
 def main():
@@ -32,51 +30,15 @@ def main():
     print(responses.dtypes)
     print("========================================")
     print(responses2.dtypes)
-    print(responses2["Measure_L1"].nunique())
-    print(responses2["Measure_L2"].nunique())
-    print(responses2["Measure_L3"].nunique())
-    print(responses2["Measure_L4"].nunique())
-
-    print(responses2["Measure_L2"])
     print("========================================")
     print(testing.dtypes)
 
-    print(responses.shape)
-
     # convert measures to one-hot
-    lb = LabelBinarizer()
+    # lb = LabelBinarizer()
+    # responses2["L2"] = lb.fit_transform(responses2["Measure_L2"]).tolist()
+    # print(responses2["L2"])
 
-    responses2["L2"] = lb.fit_transform(responses2["Measure_L2"]).tolist()
-
-    print(responses2["L2"])
-
-
-
-    # usa_r = responses[responses["CountryName"] == "United States"]
-    # usa_t = testing[testing["location"] == "United States"]
-    #
-    # germany_r = responses[responses["CountryName"] == "Germany"]
-    # germany_t = testing[testing["location"] == "Germany"]
-    #
-    # nrows = 1
-    # ncols = 2
-    # fig, axes = plt.subplots(nrows, ncols, figsize=(10 * ncols, 10 * nrows))
-    #
-    # axes[0].plot(usa_t["total_vaccinations_per_hundred"], usa_t["new_cases_smoothed_per_million"], label="USA")
-    # axes[0].plot(germany_t["total_vaccinations_per_hundred"], germany_t["new_cases_smoothed_per_million"], label="GER")
-    # axes[0].set_xlabel("% Fully Vaccinated")
-    # axes[0].set_ylabel("New Cases per Million Population")
-    # axes[0].legend()
-    #
-    # axes[1].plot(usa_t["total_vaccinations_per_hundred"], usa_t["new_deaths_smoothed_per_million"], label="USA")
-    # axes[1].plot(germany_t["total_vaccinations_per_hundred"], germany_t["new_deaths_smoothed_per_million"], label="GER")
-    # axes[1].set_xlabel("% Fully Vaccinated")
-    # axes[1].set_ylabel("New Deaths per Million Population")
-    # axes[1].legend()
-    #
-    # plt.show()
-
-    testing = testing[testing["location"] == "United Kingdom"]
+    testing = testing[testing["location"] == "Germany"]
 
     testing["date"] = pd.to_datetime(testing["date"])
 
@@ -97,30 +59,8 @@ def main():
 
 
 def test():
-
-    n_policies = 82
-    n_other = 1
-
-    model = nn.Sequential(
-        nn.Linear(in_features=n_policies + n_other, out_features=256),
-        nn.ReLU(),
-        nn.Linear(in_features=256, out_features=256),
-        nn.ReLU(),
-        nn.Linear(in_features=256, out_features=1)
-    )
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-
-    loss = nn.MSELoss()
-
-    schedulers = []
-
-    train_loader = None
-    val_loader = None
-
-    policy_tracker = PolicyTracker(model, optimizer, loss, schedulers, train_loader, val_loader)
-
-    policy_tracker.fit(100, verbosity=2)
+    pt = PolicyTracker()
+    trainer.fit(pt)
 
 
 def unify_legend(*axes):
@@ -137,3 +77,4 @@ def unify_legend(*axes):
 
 if __name__ == "__main__":
     main()
+    test()
