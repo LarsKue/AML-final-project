@@ -10,6 +10,7 @@ class GitHubData:
         self.user = user
         self.repo = repo
         self.branch = branch
+        self.pure_path = pl.PurePath(path)
         self.path = pl.Path(path)
 
         self._content = None
@@ -25,8 +26,8 @@ class GitHubData:
     def url(self, raw=True):
         if raw:
             return "https://raw.githubusercontent.com/" + self.user + "/" + self.repo \
-                   + "/" + self.branch + "/" + str(self.path)
-        return "https://github.com/" + self.user + "/" + self.repo + "/tree/" + self.branch + "/" + str(self.path)
+                   + "/" + self.branch + "/" + str(self.pure_path)
+        return "https://github.com/" + self.user + "/" + self.repo + "/tree/" + self.branch + "/" + str(self.pure_path)
 
     def fetch(self, save=True, path=None):
         url = self.url()
