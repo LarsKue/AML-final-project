@@ -62,45 +62,55 @@ class PolicyTracker(pl.LightningModule):
         responses.load()
         testing.load()
 
-        responses = responses.to_df()
+        responses = responses.to_df(low_memory=False)
         testing = testing.to_df()
 
-        ["C1_School closing",
-        "C1_Flag",
-        "C2_Workplace closing",
-        "C2_Flag",
-        "C3_Cancel public events",
-        "C3_Flag",
-        "C4_Restrictions on gatherings",
-        "C4_Flag",
-        "C5_Close public transport",
-        "C5_Flag",
-        "C6_Stay at home requirements",
-        "C6_Flag",
-        "C7_Restrictions on internal movement",
-        "C7_Flag",
-        "C8_International travel controls",
-        "E1_Income support",
-        "E1_Flag",
-        "E2_Debt/contract relief",
-        "E3_Fiscal measures",
-        "E4_International support",
-        "H1_Public information campaigns",
-        "H1_Flag",
-        "H2_Testing policy",
-        "H3_Contact tracing",
-        "H4_Emergency investment in healthcare",
-        "H5_Investment in vaccines",
-        "H6_Facial Coverings",
-        "H6_Flag",
-        "H7_Vaccination policy",
-        "H7_Flag",
-        "H8_Protection of elderly people",
-        "H8_Flag"]
+        columns = [
+            "C1_School closing",
+            "C2_Workplace closing",
+            "C3_Cancel public events",
+            "C4_Restrictions on gatherings",
+            "C5_Close public transport",
+            "C6_Stay at home requirements",
+            "C7_Restrictions on internal movement",
+            "C8_International travel controls",
+            "E1_Income support",
+            "E2_Debt/contract relief",
+            "H1_Public information campaigns",
+            "H2_Testing policy",
+            "H3_Contact tracing",
+            "H6_Facial Coverings",
+            "H7_Vaccination policy",
+            "H8_Protection of elderly people"
+       ]
 
+        responses = responses[columns]
 
-        x = None
-        # TODO: add policies
+        max_values = [3, 3, 2, 4, 2, 3, 2, 4, 2, 2, 2, 3, 2, 4, 5, 3]
+        n = sum(max_values)
+
+        responses_tensor = torch.zeros(len(responses), n)
+
+        # TODO: optimize, or just save and load
+        for i, row in responses.iterrows():
+            oh = torch.zeros(n)
+            offset = 0
+
+            for j, index in enumerate(row):
+                try:
+                    oh[offset + int(index) - 1] = 1.0
+                except ValueError:
+                    # ignore NaNs
+                    pass
+                offset += max_values[j]
+
+            responses_tensor[i] = oh
+
+        print(responses_tensor.shape)
+        print(responses_tensor)
+
+        # TODO: add epidemic state (vaccination rate)
+        x = responses_tensor
         y = torch.Tensor(testing["reproduction_rate"].values)
 
         ds = TensorDataset(x, y)
@@ -108,12 +118,13 @@ class PolicyTracker(pl.LightningModule):
         return DataLoader(ds)
 
     def val_dataloader(self):
+        self.train_dataloader()
         responses, _, testing = data.fetch()
 
         responses.load()
         testing.load()
 
-        responses = responses.to_df()
+        responses = responses.to_df(low_memory=False)
         testing = testing.to_df()
 
         x = None
@@ -125,12 +136,16 @@ class PolicyTracker(pl.LightningModule):
 
 
 
-def to_one_hot(indices):
-    max_values = [3, 3, 2, 4, 2, 3, 2, 4, 2, 2, 2, 3, 2, 4, 5, 3]
-    offset = 0
-    oh = torch.zeros(sum(max_values))
-    for i, mv in zip(indices, max_values):
-        oh[offset + i] = 1.0
-        offset += mv
-
-    return oh
+# def to_one_hot(indices):
+#     max_values = [3, 3, 2, 4, 2, 3, 2, 4, 2, 2, 2, 3, 2, 4, 5, 3]
+#     offset = 0
+#     oh = torch.zeros(sum(max_values))
+#     for i, mv in zip(indices, max_values):
+#         try:
+#             oh[offset + int(i) - 1] = 1.0
+#         except ValueError:
+#             # ignore NaNs
+#             pass
+#         offset += mv
+#
+#     return oh
