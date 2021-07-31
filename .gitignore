@@ -130,3 +130,9 @@ dmypy.json
 
 # datasets
 *.csv
+
+# lightning logs
+lightning_logs/
+
+# Jetbrains
+.idea/
