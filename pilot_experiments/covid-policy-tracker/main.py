@@ -13,11 +13,11 @@ from trainer import trainer
 def main():
     responses, responses2, testing = data.fetch()
 
-    responses2.reencode("cp1252", "utf8")
+    #responses2.reencode("cp1252", "utf8")
 
-    responses.save()
-    responses2.save()
-    testing.save()
+    #responses.save()
+    #responses2.save()
+    #testing.save()
 
     responses.load()
     responses2.load()
