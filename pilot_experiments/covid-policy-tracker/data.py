@@ -63,7 +63,7 @@ class GitHubData:
         self.unfetch()
         return df
 
-    def reencode(self, old="utf8", new="utf8"):
+    def reencode(self, old="cp1252", new="utf8"):
         content = self.content
         bytes_io = io.BytesIO(content)
         decoded = bytes_io.read().decode(old)

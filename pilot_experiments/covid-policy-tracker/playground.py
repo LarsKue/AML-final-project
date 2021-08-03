@@ -4,7 +4,6 @@ from data import GitHubData
 import pandas as pd
 
 import torch
-import math
 
 
 responses = GitHubData(user="OxCGRT", repo="covid-policy-tracker", branch="master", path="data/OxCGRT_latest.csv")
