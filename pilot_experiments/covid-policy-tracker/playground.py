@@ -1,9 +1,18 @@
+import math
 
+import numpy as np
 
 from data import GitHubData
 import pandas as pd
 
 import torch
+
+import matplotlib.pyplot as plt
+
+
+def window(l, n):
+    for i in range(len(l) - n):
+        yield l[i:i+n]
 
 
 def create_policies_oh(responses, testing, country_name):
@@ -11,7 +20,7 @@ def create_policies_oh(responses, testing, country_name):
 
     # filter for one country, for now
     responses_single = responses[responses["CountryName"] == country_name].copy()
-    testing_sinlge = testing[testing["location"] == country_name].copy()
+    testing_single = testing[testing["location"] == country_name].copy()
 
     # superset of dates from start to finish
     dates = pd.date_range(start=responses_single["Date"].min(), end=responses_single["Date"].max(), freq="1D")
@@ -20,11 +29,11 @@ def create_policies_oh(responses, testing, country_name):
     responses_single.set_index("Date", inplace=True)
     responses_single = responses_single.reindex(dates)
 
-    testing_sinlge.set_index("date", inplace=True)
-    testing_sinlge = testing_sinlge.reindex(dates)
+    testing_single.set_index("date", inplace=True)
+    testing_single = testing_single.reindex(dates)
 
     responses_single = responses_single.reset_index()
-    testing_sinlge = testing_sinlge.reset_index()
+    testing_single = testing_single.reset_index()
 
     # TODO: Maybe don't interpolate, and instead just drop NaNs if they are only at start and end
     # # interpolate the nan values using a piecewise constant function
@@ -75,8 +84,30 @@ def create_policies_oh(responses, testing, country_name):
     policies_oh_single = pd.DataFrame(policies_oh_single.numpy())
 
     # relevant data from testing is in vaccinations and reproduction rate
-    policies_oh_single["vaccination_rate"] = testing_sinlge["people_fully_vaccinated_per_hundred"].fillna(0.0)
-    policies_oh_single["reproduction_rate"] = testing_sinlge["reproduction_rate"]
+    policies_oh_single["vaccination_rate"] = testing_single["people_fully_vaccinated_per_hundred"].fillna(0.0)
+
+    policies_oh_single["reproduction_rate"] = testing_single["reproduction_rate"]
+
+    # TODO: remove r value?
+    missing = list(np.full(7, np.nan))
+    shifted_r = missing + testing_single["reproduction_rate"][7:].tolist()
+    shifted_r = pd.Series(shifted_r)
+    policies_oh_single["reproduction_rate_last_week"] = shifted_r
+
+    # TODO: give the model a window of time to see the cases, instead of just cases from exactly one week ago
+    # shifted_cases = testing_single["new_cases_smoothed_per_million"][7:].tolist() + 7 * [math.nan]
+    # shifted_cases = pd.Series(shifted_cases)
+    # policies_oh_single["cases_last_week"] = shifted_cases
+
+    missing = list(np.full((14, 7), np.nan))
+
+    # TODO: Remove, or prevent overfit to this
+    cases_window = missing + list(window(testing_single["new_cases_smoothed_per_million"].tolist(), 7))[14:]
+    cases_window = np.array(cases_window)
+
+    for i in range(7):
+        s = pd.Series(cases_window[:, i])
+        policies_oh_single[f"cases_window_{i}"] = s
 
     policies_oh_single = policies_oh_single.dropna()
 
@@ -86,9 +117,8 @@ def create_policies_oh(responses, testing, country_name):
 responses = GitHubData(user="OxCGRT", repo="covid-policy-tracker", branch="master", path="data/OxCGRT_latest.csv")
 testing = GitHubData(user="owid", repo="covid-19-data", branch="master", path="public/data/owid-covid-data.csv")
 
-
-responses.save()
-testing.save()
+# responses.save()
+# testing.save()
 
 responses.load()
 testing.load()

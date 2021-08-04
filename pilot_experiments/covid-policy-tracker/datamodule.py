@@ -22,7 +22,7 @@ class ResponseDataModule(pl.LightningDataModule):
 
     def prepare_data(self):
         # load from csv
-        df = pd.read_csv("policies_onehot.csv")
+        df = pd.read_csv("policies_onehot_full.csv")
         y = df.pop("reproduction_rate").to_numpy()
         x = df.to_numpy()
 
