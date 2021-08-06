@@ -1,18 +1,15 @@
 import math
 
 import numpy as np
-
-from data import GitHubData
 import pandas as pd
-
 import torch
 
-import matplotlib.pyplot as plt
+from data import GitHubData
 
 
 def window(l, n):
     for i in range(len(l) - n):
-        yield l[i:i+n]
+        yield l[i:i + n]
 
 
 def create_policies_oh(responses, testing, country_name):
@@ -75,7 +72,8 @@ def create_policies_oh(responses, testing, country_name):
                 oh[offset + int(index) - 1] = 1.0
             except ValueError:
                 # nan
-                pass
+                torch.fill_(oh, math.nan)
+                break
 
             offset += max_values[j]
 
@@ -88,26 +86,30 @@ def create_policies_oh(responses, testing, country_name):
 
     policies_oh_single["reproduction_rate"] = testing_single["reproduction_rate"]
 
+    policies_oh_single["country"] = country_name
+
     # TODO: remove r value?
-    missing = list(np.full(7, np.nan))
-    shifted_r = missing + testing_single["reproduction_rate"][7:].tolist()
-    shifted_r = pd.Series(shifted_r)
-    policies_oh_single["reproduction_rate_last_week"] = shifted_r
+    # missing = list(np.full(7, np.nan))
+    # shifted_r = missing + testing_single["reproduction_rate"][7:].tolist()
+    # shifted_r = pd.Series(shifted_r)
+    # policies_oh_single["reproduction_rate_last_week"] = shifted_r
 
     # TODO: give the model a window of time to see the cases, instead of just cases from exactly one week ago
-    # shifted_cases = testing_single["new_cases_smoothed_per_million"][7:].tolist() + 7 * [math.nan]
-    # shifted_cases = pd.Series(shifted_cases)
-    # policies_oh_single["cases_last_week"] = shifted_cases
+    offset = 14
+    missing_fill = list(np.full((offset,), np.nan))
+    shifted_cases = missing_fill + testing_single["new_cases_smoothed_per_million"][offset:].tolist()
+    shifted_cases = pd.Series(shifted_cases)
+    policies_oh_single[f"cases_d-{offset}"] = shifted_cases
 
-    missing = list(np.full((14, 7), np.nan))
 
-    # TODO: Remove, or prevent overfit to this
-    cases_window = missing + list(window(testing_single["new_cases_smoothed_per_million"].tolist(), 7))[14:]
-    cases_window = np.array(cases_window)
-
-    for i in range(7):
-        s = pd.Series(cases_window[:, i])
-        policies_oh_single[f"cases_window_{i}"] = s
+    #
+    # # TODO: Remove, or prevent overfit to this
+    # cases_window = missing + list(window(testing_single["new_cases_smoothed_per_million"].tolist(), 7))[14:]
+    # cases_window = np.array(cases_window)
+    #
+    # for i in range(7):
+    #     s = pd.Series(cases_window[:, i])
+    #     policies_oh_single[f"cases_window_{i}"] = s
 
     policies_oh_single = policies_oh_single.dropna()
 
@@ -134,7 +136,11 @@ print(testing.dtypes)
 
 print(responses["CountryName"].unique())
 print(testing["location"].unique())
-intersection = [x for x in responses["CountryName"].unique() if x in testing["location"].unique() and x not in ["Germany", "Brazil", "Canada", "China", "United Kingdom", "United States"]]
+
+exclude = ["Brazil", "Canada", "China", "United Kingdom", "United States"]
+
+intersection = [x for x in responses["CountryName"].unique() if
+                x in testing["location"].unique() and x not in exclude]
 print(intersection)
 policies_oh = create_policies_oh(responses, testing, intersection[0])
 print(policies_oh)

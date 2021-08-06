@@ -9,14 +9,19 @@ class PolicyTracker(pl.LightningModule):
         super(PolicyTracker, self).__init__()
 
         self.n_policies = 46
-        self.n_other = 9
+        self.n_other = 2
 
         self.model = nn.Sequential(
             nn.Linear(self.n_policies + self.n_other, 1024),
             nn.PReLU(),
+            nn.Dropout(p=0.2),
             nn.Linear(1024, 512),
             nn.PReLU(),
+            nn.Dropout(p=0.2),
             nn.Linear(512, 256),
+            nn.PReLU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(256, 256),
             nn.PReLU(),
             nn.Linear(256, 1)
         )

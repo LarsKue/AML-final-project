@@ -1,4 +1,3 @@
-
 import pytorch_lightning as pl
 
 import torch
@@ -18,11 +17,15 @@ class ResponseDataModule(pl.LightningDataModule):
         # split datasets
         self.train_ds = None
         self.val_ds = None
+
         super(ResponseDataModule, self).__init__()
 
     def prepare_data(self):
         # load from csv
         df = pd.read_csv("policies_onehot_full.csv")
+
+        df.pop("country")
+
         y = df.pop("reproduction_rate").to_numpy()
         x = df.to_numpy()
 
