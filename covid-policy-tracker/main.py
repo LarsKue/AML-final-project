@@ -1,4 +1,5 @@
 import pytorch_lightning as pl
+from pytorch_lightning.loggers import TensorBoardLogger
 
 from datamodule import ResponseDataModule
 from policy_tracker import PolicyTracker
@@ -104,7 +105,7 @@ def plot_country(model, df, country="Germany", randomize_policies=False):
     ax.set_ylabel("R")
     ax.set_title(country)
     ax.legend()
-    
+
 
 def plot_countries(countries=("Germany",), randomize_policies=False):
     checkpoint = latest_checkpoint()
@@ -134,6 +135,7 @@ def plot_countries(countries=("Germany",), randomize_policies=False):
     plt.savefig("test.png")
     plt.show()
 
+
 def plot_single_policy():
     checkpoint = latest_checkpoint()
     model = PolicyTracker.load_from_checkpoint(checkpoint)
@@ -151,21 +153,22 @@ def plot_single_policy():
             policy[j] = 1
 
             x = np.tile(policy, (101, 1))
-            x[:,-2] = 2*i * np.ones(len(x))
-            x[:,-1] = np.linspace(0,1,101)
+            x[:, -2] = 2 * i * np.ones(len(x))
+            x[:, -1] = np.linspace(0, 1, 101)
 
             x = torch.Tensor(x)
 
             y = model(x).detach().numpy()
 
             ax = plt.gca()
-            ax.plot(np.linspace(0,1,101), y, label=j)
-            #ax.set_xlabel("Vaccinations")
-            #ax.set_ylabel("Delta R")
-            ax.set_title(f"{2*i} days")
-            #ax.legend()
+            ax.plot(np.linspace(0, 1, 101), y, label=j)
+            # ax.set_xlabel("Vaccinations")
+            # ax.set_ylabel("Delta R")
+            ax.set_title(f"{2 * i} days")
+            # ax.legend()
 
     plt.show()
+
 
 def plot_policies_vaccination(vaccination):
     checkpoint = latest_checkpoint()
@@ -174,38 +177,39 @@ def plot_policies_vaccination(vaccination):
 
     policies = np.eye(model.n_policies)
 
-    x = np.zeros((model.n_policies+1, model.n_policies+2))
-    x[1:,:-2] = policies
-    x[:,-1] = vaccination * np.ones(model.n_policies+1)
+    x = np.zeros((model.n_policies + 1, model.n_policies + 2))
+    x[1:, :-2] = policies
+    x[:, -1] = vaccination * np.ones(model.n_policies + 1)
     x = torch.Tensor(x)
 
     y = model(x).detach().numpy()
 
-    plt.scatter(np.arange(model.n_policies+1), y)
+    plt.scatter(np.arange(model.n_policies + 1), y)
     plt.show()
-    
 
 
 def main():
     dm = ResponseDataModule()
     pt = PolicyTracker()
 
-    # instead of the last checkpoint,
-    # save the one with the smallest validation loss
-    checkpoint_callback = pl.callbacks.ModelCheckpoint(monitor="val_loss")
-    early_stopping = pl.callbacks.EarlyStopping(monitor="val_loss", patience=5)
+    callbacks = [
+        # save model with lowest validation loss
+        pl.callbacks.ModelCheckpoint(monitor="val_loss"),
+        # stop when validation loss stops decreasing
+        pl.callbacks.EarlyStopping(monitor="val_loss", patience=10),
+    ]
 
-    callbacks = [checkpoint_callback, early_stopping]
+    logger = TensorBoardLogger(save_dir="lightning_logs", name="", default_hp_metric=False, log_graph=True)
 
     trainer = pl.Trainer(
         max_epochs=100,
         callbacks=callbacks,
+        logger=logger,
         gpus=1,
     )
 
-    #trainer.fit(pt, datamodule=dm)
+    # trainer.fit(pt, datamodule=dm)
 
-    
     process = tensorboard()
 
     countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")

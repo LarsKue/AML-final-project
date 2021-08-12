@@ -1,7 +1,7 @@
 import pytorch_lightning as pl
 
 import torch
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader, TensorDataset, random_split, Subset
 
 import pandas as pd
 
@@ -22,8 +22,9 @@ class ResponseDataModule(pl.LightningDataModule):
 
     def prepare_data(self):
         # load from csv
-        df = pd.read_csv("policies_onehot_full.csv")
+        self.df = pd.read_csv("policies_onehot_full.csv")
 
+        df = self.df.copy()
         df.pop("country")
 
         y = df.pop("reproduction_rate").to_numpy()
@@ -35,7 +36,6 @@ class ResponseDataModule(pl.LightningDataModule):
         x = torch.Tensor(x)
         y = torch.Tensor(y).unsqueeze(-1)
 
-        self.df = df
         self.ds = TensorDataset(x, y)
 
     def setup(self, stage=None):
@@ -44,6 +44,17 @@ class ResponseDataModule(pl.LightningDataModule):
         val = len(self.ds) - train
 
         self.train_ds, self.val_ds = random_split(self.ds, [train, val])
+
+        # put certain countries in the validation set
+        # val_countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
+        #
+        # val = self.df["country"].isin(val_countries)
+        #
+        # train_indices = self.df[~val].index
+        # val_indices = self.df[val].index
+        #
+        # self.train_ds = Subset(self.ds, train_indices)
+        # self.val_ds = Subset(self.ds, val_indices)
 
     def train_dataloader(self):
         return DataLoader(self.train_ds, shuffle=True, num_workers=3, batch_size=self.batch_size)
