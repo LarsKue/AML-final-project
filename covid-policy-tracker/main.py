@@ -104,11 +104,12 @@ def plot_country(model, df, country="Germany", randomize_policies=False):
     ax.set_ylabel("R")
     ax.set_title(country)
     ax.legend()
-
+    
 
 def plot_countries(countries=("Germany",), randomize_policies=False):
     checkpoint = latest_checkpoint()
     model = PolicyTracker.load_from_checkpoint(checkpoint)
+    model.eval()
 
     df = pd.read_csv("policies_onehot_full.csv")
 
@@ -133,6 +134,57 @@ def plot_countries(countries=("Germany",), randomize_policies=False):
     plt.savefig("test.png")
     plt.show()
 
+def plot_single_policy():
+    checkpoint = latest_checkpoint()
+    model = PolicyTracker.load_from_checkpoint(checkpoint)
+    model.eval()
+
+    nrows = 2
+    ncols = 3
+    fig, axes = plt.subplots(nrows, ncols)
+
+    for i in range(nrows * ncols):
+        plt.subplot(nrows, ncols, i + 1)
+
+        for j in range(6):
+            policy = np.zeros(model.n_policies + model.n_other)
+            policy[j] = 1
+
+            x = np.tile(policy, (101, 1))
+            x[:,-2] = 2*i * np.ones(len(x))
+            x[:,-1] = np.linspace(0,1,101)
+
+            x = torch.Tensor(x)
+
+            y = model(x).detach().numpy()
+
+            ax = plt.gca()
+            ax.plot(np.linspace(0,1,101), y, label=j)
+            #ax.set_xlabel("Vaccinations")
+            #ax.set_ylabel("Delta R")
+            ax.set_title(f"{2*i} days")
+            #ax.legend()
+
+    plt.show()
+
+def plot_policies_vaccination(vaccination):
+    checkpoint = latest_checkpoint()
+    model = PolicyTracker.load_from_checkpoint(checkpoint)
+    model.eval()
+
+    policies = np.eye(model.n_policies)
+
+    x = np.zeros((model.n_policies+1, model.n_policies+2))
+    x[1:,:-2] = policies
+    x[:,-1] = vaccination * np.ones(model.n_policies+1)
+    x = torch.Tensor(x)
+
+    y = model(x).detach().numpy()
+
+    plt.scatter(np.arange(model.n_policies+1), y)
+    plt.show()
+    
+
 
 def main():
     dm = ResponseDataModule()
@@ -151,13 +203,19 @@ def main():
         gpus=1,
     )
 
-    # trainer.fit(pt, datamodule=dm)
+    #trainer.fit(pt, datamodule=dm)
 
+    
     process = tensorboard()
 
     countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
 
+    plot_countries(countries, randomize_policies=True)
     plot_countries(countries, randomize_policies=False)
+
+    plot_single_policy()
+    plot_policies_vaccination(0)
+    plot_policies_vaccination(1)
 
     print("Press Enter to terminate Tensorboard.")
     input()
