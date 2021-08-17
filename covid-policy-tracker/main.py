@@ -208,9 +208,9 @@ def main():
         gpus=1,
     )
 
-    # trainer.fit(pt, datamodule=dm)
-
     process = tensorboard()
+
+    # trainer.fit(pt, datamodule=dm)
 
     countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
 
