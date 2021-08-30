@@ -40,7 +40,7 @@ class ResponseDataModule(pl.LightningDataModule):
 
     def setup(self, stage=None):
         # perform random split with fractional lengths
-        train = int(0.8 * len(self.ds))
+        train = int(0.9 * len(self.ds))
         val = len(self.ds) - train
 
         self.train_ds, self.val_ds = random_split(self.ds, [train, val])

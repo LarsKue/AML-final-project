@@ -3,6 +3,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from datamodule import ResponseDataModule
 from policy_tracker import PolicyTracker
+from policy_tracker_single import PolicyTrackerSingle
 
 import subprocess as sub
 
@@ -107,11 +108,7 @@ def plot_country(model, df, country="Germany", randomize_policies=False):
     ax.legend()
 
 
-def plot_countries(countries=("Germany",), randomize_policies=False):
-    checkpoint = latest_checkpoint()
-    model = PolicyTracker.load_from_checkpoint(checkpoint)
-    model.eval()
-
+def plot_countries(model, countries=("Germany",), randomize_policies=False):
     df = pd.read_csv("policies_onehot_full.csv")
 
     nrows = int(round(np.sqrt(len(countries))))
@@ -136,11 +133,7 @@ def plot_countries(countries=("Germany",), randomize_policies=False):
     plt.show()
 
 
-def plot_single_policy():
-    checkpoint = latest_checkpoint()
-    model = PolicyTracker.load_from_checkpoint(checkpoint)
-    model.eval()
-
+def plot_single_policy(model):
     nrows = 2
     ncols = 3
     fig, axes = plt.subplots(nrows, ncols)
@@ -170,11 +163,7 @@ def plot_single_policy():
     plt.show()
 
 
-def plot_policies_vaccination(vaccination):
-    checkpoint = latest_checkpoint()
-    model = PolicyTracker.load_from_checkpoint(checkpoint)
-    model.eval()
-
+def plot_policies_vaccination(model, vaccination):
     policies = np.eye(model.n_policies)
 
     x = np.zeros((model.n_policies + 1, model.n_policies + 2))
@@ -190,7 +179,7 @@ def plot_policies_vaccination(vaccination):
 
 def main():
     dm = ResponseDataModule()
-    pt = PolicyTracker()
+    pt = PolicyTrackerSingle()
 
     callbacks = [
         # save model with lowest validation loss
@@ -212,14 +201,20 @@ def main():
 
     # trainer.fit(pt, datamodule=dm)
 
+    checkpoint = latest_checkpoint()
+
+    pt = PolicyTrackerSingle.load_from_checkpoint(checkpoint)
+
+    pt.eval()
+
     countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
 
-    plot_countries(countries, randomize_policies=True)
-    plot_countries(countries, randomize_policies=False)
+    # plot_countries(countries, randomize_policies=True)
+    plot_countries(model=pt, countries=countries, randomize_policies=False)
 
-    plot_single_policy()
-    plot_policies_vaccination(0)
-    plot_policies_vaccination(1)
+    plot_single_policy(model=pt)
+    plot_policies_vaccination(model=pt, vaccination=0)
+    plot_policies_vaccination(model=pt, vaccination=1)
 
     print("Press Enter to terminate Tensorboard.")
     input()

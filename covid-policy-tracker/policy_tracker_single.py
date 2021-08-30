@@ -1,11 +1,17 @@
-import torch
-import torch.nn as nn
+
 import pytorch_lightning as pl
 
+import torch
+import torch.nn as nn
 
-class PolicyTracker(pl.LightningModule):
+
+class PolicyTrackerSingle(pl.LightningModule):
     def __init__(self):
-        super(PolicyTracker, self).__init__()
+        super(PolicyTrackerSingle, self).__init__()
+
+        # placeholder mean R0 taken from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7751056/
+        # could be country-dependent, this should definitely be improved
+        self.R0 = 3.28
 
         self.n_policies = 46
         self.n_other = 2
@@ -24,7 +30,7 @@ class PolicyTracker(pl.LightningModule):
             nn.Dropout(p=0.2),
             nn.Linear(256, 256),
             nn.PReLU(),
-            nn.Linear(256, 1)
+            nn.Linear(256, self.n_policies),
         )
 
         # perform forward pass to initialize lazy modules
@@ -39,8 +45,23 @@ class PolicyTracker(pl.LightningModule):
 
         self.loss = nn.MSELoss()
 
+    # TODO: somehow this predicts 0, all the time
     def forward(self, x):
-        return self.model(x)
+        # predict the effect p of single policies on the R value
+        p = self.model(x)
+
+        # we don't want the neural net to have to deal with signs, all values should be >=0
+        p = torch.abs(p)
+
+        # which policies were in effect
+        which = x[..., :self.n_policies] >= 1e-9
+        p[~which] = 1.0
+
+        # take the product
+        m = torch.prod(p, dim=-1)
+
+        # scale with R0
+        return self.R0 * m
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
@@ -65,3 +86,4 @@ class PolicyTracker(pl.LightningModule):
         self.log("val_loss", loss)
 
         return loss
+
