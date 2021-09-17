@@ -67,7 +67,6 @@ class PolicyTrackerMDN(pl.LightningModule):
                 data = module.weight.data
                 nn.init.normal_(data, 0, 2 / data.numel())
 
-        
         def loss_fn(target, mu, sigma_sqr, pi):
             # pi, sigma, mu: (batch_size, num_gaussians)
             # print()
@@ -76,7 +75,7 @@ class PolicyTrackerMDN(pl.LightningModule):
             # print("sigma_sqr", sigma_sqr.shape)
             # print("mu", mu.shape)
 
-            exponents = -(target.expand_as(mu) - mu)**2 / (2*sigma_sqr)
+            exponents = -(target.expand_as(mu) - mu) ** 2 / (2 * sigma_sqr)
             max_exponent = torch.max(exponents, dim=1).values
             # print(exponents)
             # print(max_exponent)
@@ -84,7 +83,8 @@ class PolicyTrackerMDN(pl.LightningModule):
             # print(max_exponent.shape)
             # print(exponents - max_exponent.unsqueeze(1).expand_as(exponents))
 
-            gaussian_prob = torch.exp(exponents - max_exponent.unsqueeze(1).expand_as(exponents)) / torch.sqrt(2*math.pi*sigma_sqr)
+            gaussian_prob = torch.exp(exponents - max_exponent.unsqueeze(1).expand_as(exponents)) / torch.sqrt(
+                2 * math.pi * sigma_sqr)
 
             # print("gaussian_prob", gaussian_prob.shape)
             # print("\n")
@@ -93,14 +93,13 @@ class PolicyTrackerMDN(pl.LightningModule):
             # print(sigma_sqr)
             # print(pi)
             # print(gaussian_prob)
-            
 
             prob = pi * gaussian_prob
             prob[torch.isinf(gaussian_prob) & (pi < 1e-10)] = 0.0
             # print("prob", prob.shape)
             negative_log_likelihood = -torch.log(torch.sum(prob, dim=1)) - max_exponent
             # print("negative_log_likelihood", negative_log_likelihood.shape)
-            
+
             return torch.mean(negative_log_likelihood)
 
         self.loss = loss_fn
@@ -140,7 +139,6 @@ class PolicyTrackerMDN(pl.LightningModule):
 
         return loss
 
-
     def MC_Dropout(self, X, sample_size, only_max_component=True):
         self.train()
         if only_max_component:
@@ -162,8 +160,8 @@ class PolicyTrackerMDN(pl.LightningModule):
                 means[:, i] = mu
                 variances[:, i] = sigma_sqr
 
-            mean_prediction = torch.mean(means, axis=1)
-            variance_prediction = torch.mean(variances + torch.square(means), axis=1) - torch.square(mean_prediction)
+            mean_prediction = torch.mean(means, dim=1)
+            variance_prediction = torch.mean(variances + torch.square(means), dim=1) - torch.square(mean_prediction)
 
             return mean_prediction, variance_prediction
         else:
@@ -182,11 +180,6 @@ class PolicyTrackerMDN(pl.LightningModule):
                 weights[i, :, :] = pi
 
             return means, variances, weights
-
-
-
-
-
 
 
 def tensorboard():
@@ -251,7 +244,6 @@ def latest_checkpoint(version=None):
     return str(checkpoint)
 
 
-
 def plot_country(model, df, country="Germany", randomize_policies=False):
     df = df[df["country"] == country]
 
@@ -272,7 +264,7 @@ def plot_country(model, df, country="Germany", randomize_policies=False):
         x[:, :model.n_policies] = random_x
 
     means, variances = model.MC_Dropout(x, 1000)
-    
+
     means = means.detach().cpu().numpy()
     stds = torch.sqrt(variances).detach().cpu().numpy()
 
@@ -280,7 +272,8 @@ def plot_country(model, df, country="Germany", randomize_policies=False):
     ax.plot(np.arange(len(y)), y, label="Actual")
 
     ax.plot(np.arange(len(y)), means, label="Predicted")
-    ax.fill_between(np.arange(len(y)), means - 1.96*stds, means + 1.96*stds, color="C0", alpha=0.2, label="95% confidence")
+    ax.fill_between(np.arange(len(y)), means - 1.96 * stds, means + 1.96 * stds, color="C0", alpha=0.2,
+                    label="95% confidence")
 
     ax.set_xlabel("Time")
     ax.set_ylabel("R")
@@ -293,7 +286,7 @@ def plot_countries(model, countries=("Germany",), randomize_policies=False):
 
     nrows = int(round(np.sqrt(len(countries))))
     ncols = len(countries) // nrows
-    
+
     plt.figure(figsize=(6 * ncols + 1, 6 * nrows))
 
     axes = []
@@ -301,7 +294,6 @@ def plot_countries(model, countries=("Germany",), randomize_policies=False):
         print(country)
         axes.append(plt.subplot(nrows, ncols, i + 1))
         plot_country(model, df, country, randomize_policies=randomize_policies)
-
 
     # set all ylims equal
     ylims = []
@@ -340,7 +332,7 @@ def plot_country_heatmap(model, df, ylims, country="Germany", randomize_policies
     means, variances, weights = model.MC_Dropout(x, 1000, only_max_component=False)
 
     num_ys = 1000
-    
+
     y_grid = torch.linspace(ylims[0], ylims[1], num_ys)
     y_grid = y_grid.repeat(means.shape[1], 1)
     y_grid = y_grid.unsqueeze(2).repeat(1, 1, means.shape[2])
@@ -352,8 +344,8 @@ def plot_country_heatmap(model, df, ylims, country="Germany", randomize_policies
         sigma_sqr = variances[i].unsqueeze(1).repeat(1, num_ys, 1)
         pi = weights[i].unsqueeze(1).repeat(1, num_ys, 1)
 
-        exponents = -(y_grid - mu)**2 / (2*sigma_sqr)
-        gaussian_prob = torch.exp(exponents) / torch.sqrt(2*math.pi*sigma_sqr)
+        exponents = -(y_grid - mu) ** 2 / (2 * sigma_sqr)
+        gaussian_prob = torch.exp(exponents) / torch.sqrt(2 * math.pi * sigma_sqr)
 
         prob = pi * gaussian_prob
         prob = torch.sum(prob, dim=2)
@@ -363,12 +355,12 @@ def plot_country_heatmap(model, df, ylims, country="Germany", randomize_policies
     total_prob /= torch.max(total_prob)
     total_prob = total_prob.detach().cpu().numpy()
 
-
     ax = plt.gca()
 
     ax.plot(np.arange(len(y)), y, label="Actual")
 
-    ax.imshow(total_prob.T, extent=[0, len(y), *ylims], origin="lower", aspect='auto', cmap='hot', interpolation='nearest')
+    ax.imshow(total_prob.T, extent=[0, len(y), *ylims], origin="lower", aspect='auto', cmap='hot',
+              interpolation='nearest')
     ax.autoscale(False)
 
     ax.set_xlabel("Time")
@@ -376,12 +368,13 @@ def plot_country_heatmap(model, df, ylims, country="Germany", randomize_policies
     ax.set_title(country)
     ax.legend()
 
+
 def plot_countries_heatmap(model, ylims, countries=("Germany",), randomize_policies=False):
     df = pd.read_csv("policies_onehot_full.csv")
 
     nrows = int(round(np.sqrt(len(countries))))
     ncols = len(countries) // nrows
-    
+
     plt.figure(figsize=(6 * ncols + 1, 6 * nrows))
 
     axes = []
@@ -420,7 +413,6 @@ def plot_single_policy(model):
             mu = mu[arange, max_component].detach().cpu().numpy()
             sigma = torch.sqrt(sigma_sqr[arange, max_component]).detach().cpu().numpy()
 
-            
             ax = plt.gca()
             ax.plot(np.linspace(0, 1, 101), mu, label=j)
             ax.fill_between(np.linspace(0, 1, 101), mu - sigma, mu + sigma, alpha=0.2)
@@ -441,10 +433,9 @@ def plot_policies_vaccination(model, vaccination):
     x = torch.Tensor(x)
 
     means, variances = model.MC_Dropout(x, 1000)
-    
+
     means = means.detach().cpu().numpy()
     stds = torch.sqrt(variances).detach().cpu().numpy()
-
 
     plt.figure()
     plt.errorbar(np.arange(model.n_policies + 1), means, yerr=stds, fmt='.')
@@ -514,8 +505,8 @@ def plot_policies_vaccination(model, vaccination):
         "H8 2",
         "H8 3",
     ]
-    plt.xticks(np.arange(model.n_policies+1), xticks, rotation='vertical')
-    
+    plt.xticks(np.arange(model.n_policies + 1), xticks, rotation='vertical')
+
     # plt.show()
 
 
@@ -544,12 +535,11 @@ def main():
     # trainer.fit(pt, datamodule=dm)
     # trainer.save_checkpoint("./PolicyTrackerMDN/MC_Dropout/model_MDN_dropout.ckpt")
 
-    checkpoint = "./PolicyTrackerMDN/MC_Dropout/model_MDN_dropout.ckpt"#latest_checkpoint()
+    checkpoint = "./PolicyTrackerMDN/MC_Dropout/model_MDN_dropout.ckpt"  # latest_checkpoint()
 
     pt = PolicyTrackerMDN.load_from_checkpoint(checkpoint)
 
     countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
-
 
     # ylims = plot_countries(model=pt, countries=countries, randomize_policies=True)
     ylims = plot_countries(model=pt, countries=countries, randomize_policies=False)

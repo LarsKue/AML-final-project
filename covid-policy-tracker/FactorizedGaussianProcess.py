@@ -5,12 +5,10 @@ import GPy
 import pickle
 import pandas as pd
 
-
 import pathlib
 import re
 
 from datamodule import ResponseDataModule
-
 
 
 class FactorizedGaussianProcess(Model):
@@ -30,7 +28,6 @@ class FactorizedGaussianProcess(Model):
         # cached variables for NPAE prediction
         self.NPAE_K_cross_cache = None
         self.NPAE_K_invs_cache = None
-        
 
         if partition_type == "random":
             self.partition = np.random.choice(self.N, size=(self.M, self.n), replace=True)
@@ -56,16 +53,14 @@ class FactorizedGaussianProcess(Model):
             self.Y_std = np.std(self.Y, axis=0)
             self.Y = (self.Y - self.Y_mean) / self.Y_std
 
-
         # same hyperparameters for all experts
-        self.gpr = GPy.models.GPRegression(self.X[self.partition[0],:], self.Y[self.partition[0],:], kernel=self.kernel)
+        self.gpr = GPy.models.GPRegression(self.X[self.partition[0], :], self.Y[self.partition[0], :],
+                                           kernel=self.kernel)
         self.link_parameters(self.gpr)
 
-
-
     def log_likelihood_k(self, k):
-        X_k = self.X[self.partition[k],:]
-        Y_k = self.Y[self.partition[k],:]
+        X_k = self.X[self.partition[k], :]
+        Y_k = self.Y[self.partition[k], :]
 
         self.gpr.set_XY(X_k, Y_k)
 
@@ -76,12 +71,12 @@ class FactorizedGaussianProcess(Model):
         res = np.zeros(self.M)
         for k in range(self.M):
             res[k] = self.log_likelihood_k(k)
-        
+
         return np.sum(res)
 
     def _log_likelihood_gradients_k(self, k):
-        X_k = self.X[self.partition[k],:]
-        Y_k = self.Y[self.partition[k],:]
+        X_k = self.X[self.partition[k], :]
+        Y_k = self.Y[self.partition[k], :]
 
         self.gpr.set_XY(X_k, Y_k)
 
@@ -96,30 +91,29 @@ class FactorizedGaussianProcess(Model):
         return np.sum(res, axis=0)
 
     def predict_k(self, k, X_test):
-        X_k = self.X[self.partition[k],:]
-        Y_k = self.Y[self.partition[k],:]
+        X_k = self.X[self.partition[k], :]
+        Y_k = self.Y[self.partition[k], :]
 
         self.gpr.set_XY(X_k, Y_k)
 
         prediction_k = self.gpr.predict(X_test)
-        
+
         return prediction_k
 
     def predict_k_communication(self, k, communication_index, X_test):
-        X_k = self.X[self.partition[k],:]
-        Y_k = self.Y[self.partition[k],:]
-        
-        X_c = self.X[self.partition[communication_index],:]
-        Y_c = self.Y[self.partition[communication_index],:]
+        X_k = self.X[self.partition[k], :]
+        Y_k = self.Y[self.partition[k], :]
+
+        X_c = self.X[self.partition[communication_index], :]
+        Y_c = self.Y[self.partition[communication_index], :]
 
         X_plus = np.vstack((X_k, X_c))
         Y_plus = np.vstack((Y_k, Y_c))
 
-
         self.gpr.set_XY(X_plus, Y_plus)
-        
+
         prediction_k = self.gpr.predict(X_test)
-        
+
         return prediction_k
 
     def NPAE_cross_kernel_and_inverses(self):
@@ -133,12 +127,12 @@ class FactorizedGaussianProcess(Model):
             for j in range(self.M):
                 print(f"cross kernel ({i},{j})")
                 if i == j:
-                    self_covariance = kernel_function(self.X[self.partition[i],:]) + gpr_variance
+                    self_covariance = kernel_function(self.X[self.partition[i], :]) + gpr_variance
                     K_cross[-1].append(self_covariance)
                     K_invs.append(np.linalg.inv(self_covariance))
                 else:
-                    K_cross[-1].append(kernel_function(self.X[self.partition[i],:], self.X[self.partition[j],:]))
-                    
+                    K_cross[-1].append(kernel_function(self.X[self.partition[i], :], self.X[self.partition[j], :]))
+
         return K_invs, K_cross
 
     def NPAE_covariance_vector(self, x, K_invs):
@@ -147,12 +141,12 @@ class FactorizedGaussianProcess(Model):
         k_x_Xi_list = []
 
         for i in range(self.M):
-            k_x_Xi = kernel_function(x[np.newaxis, :], self.X[self.partition[i],:])
+            k_x_Xi = kernel_function(x[np.newaxis, :], self.X[self.partition[i], :])
             k_x_Xi_list.append(k_x_Xi)
             k_M_x[i] = k_x_Xi.dot(K_invs[i].dot(k_x_Xi.T))
 
         return k_x_Xi_list, k_M_x
-    
+
     def NPAE_covariance_matrix_inverse(self, x, K_invs, K_cross, k_x_Xi_list):
         kernel_function = self.gpr.kern.K
         K_M_x = np.zeros(shape=(self.M, self.M))
@@ -174,12 +168,12 @@ class FactorizedGaussianProcess(Model):
         # add lower triangular part
         K_M_x = K_M_x + K_M_x.T
 
-        return np.linalg.inv(K_M_x + np.eye(K_M_x.shape[0])*1e-10)
+        return np.linalg.inv(K_M_x + np.eye(K_M_x.shape[0]) * 1e-10)
 
     def predict(self, X_test, aggregation_type="rBCM"):
         if self.normalize_X:
             X_test = (X_test.copy() - self.X_mean) / self.X_std
-            
+
         print(f"predicting - {aggregation_type}")
         mean = np.zeros(shape=(X_test.shape[0], 1))
         inverse_variance = np.zeros(shape=(X_test.shape[0], 1))
@@ -187,16 +181,16 @@ class FactorizedGaussianProcess(Model):
 
         if aggregation_type == "mean":
             for k in range(self.M):
-                print(f"expert {k+1}/{self.M}")
+                print(f"expert {k + 1}/{self.M}")
                 prediction_k = self.predict_k(k, X_test)
                 mean += prediction_k[0] / self.M
                 variance += prediction_k[1] / self.M
 
         elif aggregation_type == "SPV":
             variance = np.ones(shape=(X_test.shape[0], 1)) * np.inf
-            
+
             for k in range(self.M):
-                print(f"expert {k+1}/{self.M}")
+                print(f"expert {k + 1}/{self.M}")
                 mean_k, variance_k = self.predict_k(k, X_test)
 
                 variance_stack = np.hstack((variance, variance_k))
@@ -209,7 +203,7 @@ class FactorizedGaussianProcess(Model):
 
         elif aggregation_type == "PoE":
             for k in range(self.M):
-                print(f"expert {k+1}/{self.M}")
+                print(f"expert {k + 1}/{self.M}")
                 prediction_k = self.predict_k(k, X_test)
                 mean += prediction_k[0] / prediction_k[1]
                 inverse_variance += 1 / prediction_k[1]
@@ -218,12 +212,12 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "GPoE":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1, 1) + self.gpr.likelihood.variance
 
             for k in range(self.M):
-                print(f"expert {k+1}/{self.M}")
+                print(f"expert {k + 1}/{self.M}")
                 prediction_k = self.predict_k(k, X_test)
-                beta_k = 0.5 * (np.log(prior_variance) - np.log(prediction_k[1])).reshape(-1,1)
+                beta_k = 0.5 * (np.log(prior_variance) - np.log(prediction_k[1])).reshape(-1, 1)
                 # beta_k = 1 / self.M
 
                 mean += beta_k * prediction_k[0] / prediction_k[1]
@@ -233,10 +227,10 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "GPoE_constant_beta":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1, 1) + self.gpr.likelihood.variance
 
             for k in range(self.M):
-                print(f"expert {k+1}/{self.M}")
+                print(f"expert {k + 1}/{self.M}")
                 prediction_k = self.predict_k(k, X_test)
                 beta_k = 1 / self.M
 
@@ -247,25 +241,25 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "BCM":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1, 1) + self.gpr.likelihood.variance
             inverse_variance += (1 - self.M) / prior_variance
 
             for k in range(self.M):
-                print(f"expert {k+1}/{self.M}")
+                print(f"expert {k + 1}/{self.M}")
                 prediction_k = self.predict_k(k, X_test)
                 mean += prediction_k[0] / prediction_k[1]
                 inverse_variance += 1 / prediction_k[1]
-                
+
             mean = mean / inverse_variance
             variance = 1 / inverse_variance
 
         elif aggregation_type == "rBCM":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1, 1) + self.gpr.likelihood.variance
             beta_k_sum = np.zeros(shape=(X_test.shape[0], 1))
             for k in range(self.M):
-                print(f"expert {k+1}/{self.M}")
+                print(f"expert {k + 1}/{self.M}")
                 prediction_k = self.predict_k(k, X_test)
-                beta_k = 0.5 * (np.log(prior_variance) - np.log(prediction_k[1])).reshape(-1,1)
+                beta_k = 0.5 * (np.log(prior_variance) - np.log(prediction_k[1])).reshape(-1, 1)
 
                 mean += beta_k * prediction_k[0] / prediction_k[1]
                 inverse_variance += beta_k / prediction_k[1]
@@ -276,21 +270,21 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "grBCM":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1, 1) + self.gpr.likelihood.variance
             beta_k_sum = np.zeros(shape=(X_test.shape[0], 1))
-            
+
             communication_index = 0
             prediction_c = self.predict_k(communication_index, X_test)
-            
+
             for k in range(self.M):
                 if k == communication_index:
                     continue
-                print(f"expert {k+1}/{self.M}")
+                print(f"expert {k + 1}/{self.M}")
                 prediction_k_plus = self.predict_k_communication(k, communication_index, X_test)
                 if k == 1:
                     beta_k = 1
                 else:
-                    beta_k = 0.5 * (np.log(prediction_c[1]) - np.log(prediction_k_plus[1])).reshape(-1,1)
+                    beta_k = 0.5 * (np.log(prediction_c[1]) - np.log(prediction_k_plus[1])).reshape(-1, 1)
 
                 mean += beta_k * prediction_k_plus[0] / prediction_k_plus[1]
                 inverse_variance += beta_k / prediction_k_plus[1]
@@ -302,13 +296,13 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "NPAE":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
-            
+            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1, 1) + self.gpr.likelihood.variance
+
             K_invs, K_cross = self.NPAE_cross_kernel_and_inverses()
-            
+
             all_means = np.zeros(shape=(len(X_test), self.M))
             for i in range(self.M):
-                print(f"expert {i+1}/{self.M}")
+                print(f"expert {i + 1}/{self.M}")
                 all_means[:, i] = self.predict_k(i, X_test)[0].squeeze()
 
             for i in range(len(X_test)):
@@ -323,19 +317,16 @@ class FactorizedGaussianProcess(Model):
 
                 mean[i] = k_M_x.T.dot(K_M_x_inv.dot(M_x))
                 variance[i] = prior_variance[i] - k_M_x.T.dot(K_M_x_inv.dot(k_M_x))
-            
+
 
         else:
             raise ValueError(f"unknown aggregation type: {aggregation_type}")
 
-
         if self.normalize_Y:
             mean = mean * self.Y_std + self.Y_mean
-            std = std * self.Y_std**2
-            
+            variance = variance * self.Y_std ** 2
 
         return mean, variance
-        
 
 
 def plot_country(model, df, path, country="Germany", randomize_policies=False, aggregation_type="rBCM"):
@@ -366,12 +357,13 @@ def plot_country(model, df, path, country="Germany", randomize_policies=False, a
 
     if aggregation_type == "NPAE":
         return
-    
+
     ax = plt.gca()
     ax.plot(np.arange(len(y)), y, label="Actual")
 
     ax.plot(np.arange(len(y)), mu, label="Predicted")
-    ax.fill_between(np.arange(len(y)), mu - 1.96*sigma, mu + 1.96*sigma, color="C0", alpha=0.2, label="95% confidence")
+    ax.fill_between(np.arange(len(y)), mu - 1.96 * sigma, mu + 1.96 * sigma, color="C0", alpha=0.2,
+                    label="95% confidence")
 
     ax.set_xlabel("Time")
     ax.set_ylabel("R")
@@ -384,14 +376,14 @@ def plot_countries(model, path, countries=("Germany",), randomize_policies=False
 
     nrows = int(round(np.sqrt(len(countries))))
     ncols = len(countries) // nrows
-    
+
     plt.figure(figsize=(6 * ncols + 1, 6 * nrows))
 
     axes = []
     for i, country in enumerate(countries):
         axes.append(plt.subplot(nrows, ncols, i + 1))
-        plot_country(model, df, path=path, country=country, randomize_policies=randomize_policies, aggregation_type=aggregation_type)
-
+        plot_country(model, df, path=path, country=country, randomize_policies=randomize_policies,
+                     aggregation_type=aggregation_type)
 
     # set all ylims equal
     ylims = []
@@ -431,31 +423,32 @@ def plot_single_policy():
             policy[j] = 1
 
             x = np.tile(policy, (101, 1))
-            x[:,-2] = 2*i * np.ones(len(x))
-            x[:,-1] = np.linspace(0,1,101)
+            x[:, -2] = 2 * i * np.ones(len(x))
+            x[:, -1] = np.linspace(0, 1, 101)
 
             x = torch.Tensor(x)
 
             y = model(x).detach().numpy()
 
             ax = plt.gca()
-            ax.plot(np.linspace(0,1,101), y, label=j)
-            #ax.set_xlabel("Vaccinations")
-            #ax.set_ylabel("Delta R")
-            ax.set_title(f"{2*i} days")
-            #ax.legend()
+            ax.plot(np.linspace(0, 1, 101), y, label=j)
+            # ax.set_xlabel("Vaccinations")
+            # ax.set_ylabel("Delta R")
+            ax.set_title(f"{2 * i} days")
+            # ax.legend()
 
-    #plt.show()
+    # plt.show()
+
 
 def plot_policies_vaccination(model, vaccination, path, aggregation_type="rBCM"):
     n_policies = 46
 
     policies = np.eye(n_policies)
 
-    x = np.zeros((n_policies+1, n_policies+2))
-    x[1:,:-2] = policies
-    x[:,-1] = vaccination * np.ones(n_policies+1)
-    
+    x = np.zeros((n_policies + 1, n_policies + 2))
+    x[1:, :-2] = policies
+    x[:, -1] = vaccination * np.ones(n_policies + 1)
+
     mu, sigma_sqr = model.predict(x, aggregation_type=aggregation_type)
     mu = mu.squeeze()
     sigma_sqr = sigma_sqr.squeeze()
@@ -465,7 +458,7 @@ def plot_policies_vaccination(model, vaccination, path, aggregation_type="rBCM")
     np.save(path + f"single_policy_{aggregation_type}.npy", prediction)
 
     plt.figure(figsize=(19, 12))
-    plt.errorbar(np.arange(n_policies+1), mu, yerr=sigma, fmt='.')
+    plt.errorbar(np.arange(n_policies + 1), mu, yerr=sigma, fmt='.')
 
     xticks = [
         "no",
@@ -532,12 +525,11 @@ def plot_policies_vaccination(model, vaccination, path, aggregation_type="rBCM")
         "H8 2",
         "H8 3",
     ]
-    plt.xticks(np.arange(n_policies+1), xticks, rotation='vertical')
+    plt.xticks(np.arange(n_policies + 1), xticks, rotation='vertical')
     plt.title(aggregation_type)
     plt.savefig(path + f"fgp_single_policy_{aggregation_type}.png")
-    
-    #plt.show()
-    
+
+    # plt.show()
 
 
 def latest_version(path):
@@ -555,7 +547,6 @@ def latest_version(path):
     return max(versions)
 
 
-
 def main():
     version = latest_version(pathlib.Path("./FactorizedGaussianProcesses/"))
     if version is None:
@@ -565,7 +556,6 @@ def main():
     print(version)
     pathlib.Path(f"./FactorizedGaussianProcesses/version_{version}").mkdir()
 
-
     dm = ResponseDataModule()
     dm.prepare_data()
     dm.setup()
@@ -573,11 +563,10 @@ def main():
     train_features, train_responses = dm.train_ds.dataset.tensors
     train_features = train_features.detach().numpy()[dm.train_ds.indices]
     train_responses = train_responses.detach().numpy()[dm.train_ds.indices]
-    
+
     val_features, val_responses = dm.val_ds.dataset.tensors
     val_features = val_features.detach().numpy()[dm.val_ds.indices]
     val_responses = val_responses.detach().numpy()[dm.val_ds.indices]
-
 
     train_indices = np.array(dm.train_ds.indices)
     val_indices = np.array(dm.val_ds.indices)
@@ -587,16 +576,14 @@ def main():
     print(train_features.shape, train_responses.shape)
     print(val_features.shape, val_responses.shape)
 
-    model = FactorizedGaussianProcess(train_features, train_responses, 15, normalize_Y=False)
+    model = FactorizedGaussianProcess(train_features, train_responses, 15, normalize_Y=True)
     print(model)
 
     model.optimize()
     print(model)
-    
 
-    with open(f"./FactorizedGaussianProcesses/version_{version}/factorizedGPr.dump" , "wb") as f:
+    with open(f"./FactorizedGaussianProcesses/version_{version}/factorizedGPr.dump", "wb") as f:
         pickle.dump(model, f)
-    
 
     print(version)
     train_indices = np.load(f"./FactorizedGaussianProcesses/version_{version}/train_indices.npy")
@@ -614,29 +601,33 @@ def main():
 
     with open(f"./FactorizedGaussianProcesses/version_{version}/factorizedGPr.dump", "rb") as f:
         model = pickle.load(f)
-        
 
     countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
     for aggregation_type in ["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM", "grBCM"]:
         val_pred_mean, val_pred_var = model.predict(val_features, aggregation_type=aggregation_type)
-        np.save(f"./FactorizedGaussianProcesses/version_{version}/val_set_prediction_{aggregation_type}.npy", np.hstack((val_pred_mean, val_pred_var, val_responses)))
-        
-        plot_countries(model, path=f"./FactorizedGaussianProcesses/version_{version}/", countries=countries, randomize_policies=False, aggregation_type=aggregation_type)
-        
-        plot_policies_vaccination(model, 0, path=f"./FactorizedGaussianProcesses/version_{version}/", aggregation_type=aggregation_type)
-        
+        np.save(f"./FactorizedGaussianProcesses/version_{version}/val_set_prediction_{aggregation_type}.npy",
+                np.hstack((val_pred_mean, val_pred_var, val_responses)))
+
+        plot_countries(model, path=f"./FactorizedGaussianProcesses/version_{version}/", countries=countries,
+                       randomize_policies=False, aggregation_type=aggregation_type)
+
+        plot_policies_vaccination(model, 0, path=f"./FactorizedGaussianProcesses/version_{version}/",
+                                  aggregation_type=aggregation_type)
+
     for aggregation_type in ["NPAE"]:
-        plot_policies_vaccination(model, 0, path=f"./FactorizedGaussianProcesses/version_{version}/", aggregation_type=aggregation_type)
-        
+        plot_policies_vaccination(model, 0, path=f"./FactorizedGaussianProcesses/version_{version}/",
+                                  aggregation_type=aggregation_type)
+
         df = pd.read_csv("policies_onehot_full.csv")
         for i, country in enumerate(countries):
-            plot_country(model, df, path=f"./FactorizedGaussianProcesses/version_{version}/", country=country, randomize_policies=False, aggregation_type=aggregation_type)
+            plot_country(model, df, path=f"./FactorizedGaussianProcesses/version_{version}/", country=country,
+                         randomize_policies=False, aggregation_type=aggregation_type)
 
         val_pred_mean, val_pred_var = model.predict(val_features, aggregation_type=aggregation_type)
-        np.save(f"./FactorizedGaussianProcesses/version_{version}/val_set_prediction_{aggregation_type}.npy", np.hstack((val_pred_mean, val_pred_var, val_responses)))
-        
+        np.save(f"./FactorizedGaussianProcesses/version_{version}/val_set_prediction_{aggregation_type}.npy",
+                np.hstack((val_pred_mean, val_pred_var, val_responses)))
 
-    #plt.show()
+    # plt.show()
 
 
 if __name__ == "__main__":
@@ -659,9 +650,8 @@ if __name__ == "__main__":
 
     #     mses[i] = mse
     #     chi_squares[i] = chi_square
-        
+
     # print(["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM"][np.argmin(mses)])
     # print(["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM"][np.argmin(chi_squares)])
-        
 
     main()
