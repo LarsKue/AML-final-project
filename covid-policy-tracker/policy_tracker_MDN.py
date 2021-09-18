@@ -17,13 +17,15 @@ import pandas as pd
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.stats as stats
+
 
 
 class PolicyTrackerMDN(pl.LightningModule):
     def __init__(self):
         super(PolicyTrackerMDN, self).__init__()
 
-        self.num_gaussians = 1
+        self.num_gaussians = 3
 
         self.n_policies = 46
         self.n_other = 2
@@ -67,6 +69,7 @@ class PolicyTrackerMDN(pl.LightningModule):
                 data = module.weight.data
                 nn.init.normal_(data, 0, 2 / data.numel())
 
+        
         def loss_fn(target, mu, sigma_sqr, pi):
             # pi, sigma, mu: (batch_size, num_gaussians)
             # print()
@@ -75,7 +78,7 @@ class PolicyTrackerMDN(pl.LightningModule):
             # print("sigma_sqr", sigma_sqr.shape)
             # print("mu", mu.shape)
 
-            exponents = -(target.expand_as(mu) - mu) ** 2 / (2 * sigma_sqr)
+            exponents = -(target.expand_as(mu) - mu)**2 / (2*sigma_sqr)
             max_exponent = torch.max(exponents, dim=1).values
             # print(exponents)
             # print(max_exponent)
@@ -83,8 +86,7 @@ class PolicyTrackerMDN(pl.LightningModule):
             # print(max_exponent.shape)
             # print(exponents - max_exponent.unsqueeze(1).expand_as(exponents))
 
-            gaussian_prob = torch.exp(exponents - max_exponent.unsqueeze(1).expand_as(exponents)) / torch.sqrt(
-                2 * math.pi * sigma_sqr)
+            gaussian_prob = torch.exp(exponents - max_exponent.unsqueeze(1).expand_as(exponents)) / torch.sqrt(2*math.pi*sigma_sqr)
 
             # print("gaussian_prob", gaussian_prob.shape)
             # print("\n")
@@ -93,13 +95,14 @@ class PolicyTrackerMDN(pl.LightningModule):
             # print(sigma_sqr)
             # print(pi)
             # print(gaussian_prob)
+            
 
             prob = pi * gaussian_prob
-            prob[torch.isinf(gaussian_prob) & (pi < 1e-10)] = 0.0
+            prob[torch.isinf(gaussian_prob) & (pi < 1e-5)] = 0.0
             # print("prob", prob.shape)
             negative_log_likelihood = -torch.log(torch.sum(prob, dim=1)) - max_exponent
             # print("negative_log_likelihood", negative_log_likelihood.shape)
-
+            
             return torch.mean(negative_log_likelihood)
 
         self.loss = loss_fn
@@ -138,6 +141,11 @@ class PolicyTrackerMDN(pl.LightningModule):
         self.log("val_loss", loss)
 
         return loss
+
+
+
+
+
 
 
 def tensorboard():
@@ -206,6 +214,7 @@ def plot_country(model, df, country="Germany", randomize_policies=False):
     df = df[df["country"] == country]
 
     df.pop("country")
+    
 
     y = df.pop("reproduction_rate").to_numpy()
     x = df.to_numpy()
@@ -222,7 +231,7 @@ def plot_country(model, df, country="Germany", randomize_policies=False):
         x[:, :model.n_policies] = random_x
 
     mu, sigma_sqr, pi = model(x)
-
+    
     max_component = torch.argmax(pi, dim=1)
     arange = torch.arange(len(max_component))
 
@@ -242,17 +251,18 @@ def plot_country(model, df, country="Germany", randomize_policies=False):
 
 
 def plot_countries(model, countries=("Germany",), randomize_policies=False):
-    df = pd.read_csv("policies_onehot_full.csv")
+    df = pd.read_csv("policies_onehot_full_absolute_R.csv")
 
     nrows = int(round(np.sqrt(len(countries))))
     ncols = len(countries) // nrows
-
+    
     plt.figure(figsize=(6 * ncols + 1, 6 * nrows))
 
     axes = []
     for i, country in enumerate(countries):
         axes.append(plt.subplot(nrows, ncols, i + 1))
         plot_country(model, df, country, randomize_policies=randomize_policies)
+
 
     # set all ylims equal
     ylims = []
@@ -273,6 +283,7 @@ def plot_country_heatmap(model, df, ylims, country="Germany", randomize_policies
     df = df[df["country"] == country]
 
     df.pop("country")
+    
 
     y = df.pop("reproduction_rate").to_numpy()
     x = df.to_numpy()
@@ -291,7 +302,7 @@ def plot_country_heatmap(model, df, ylims, country="Germany", randomize_policies
     mu, sigma_sqr, pi = model(x)
 
     num_ys = 1000
-
+    
     y_grid = torch.linspace(ylims[0], ylims[1], num_ys)
     y_grid = y_grid.repeat(mu.shape[0], 1)
     y_grid = y_grid.unsqueeze(2).repeat(1, 1, mu.shape[1])
@@ -300,14 +311,15 @@ def plot_country_heatmap(model, df, ylims, country="Germany", randomize_policies
     sigma_sqr = sigma_sqr.unsqueeze(1).repeat(1, num_ys, 1)
     pi = pi.unsqueeze(1).repeat(1, num_ys, 1)
 
-    exponents = -(y_grid - mu) ** 2 / (2 * sigma_sqr)
-    gaussian_prob = torch.exp(exponents) / torch.sqrt(2 * math.pi * sigma_sqr)
+    exponents = -(y_grid - mu)**2 / (2*sigma_sqr)
+    gaussian_prob = torch.exp(exponents) / torch.sqrt(2*math.pi*sigma_sqr)
 
     prob = pi * gaussian_prob
     prob = torch.sum(prob, dim=2)
-
+    
     prob /= torch.max(prob)
     prob = prob.detach().cpu().numpy()
+
 
     ax = plt.gca()
 
@@ -321,13 +333,12 @@ def plot_country_heatmap(model, df, ylims, country="Germany", randomize_policies
     ax.set_title(country)
     ax.legend()
 
-
 def plot_countries_heatmap(model, ylims, countries=("Germany",), randomize_policies=False):
-    df = pd.read_csv("policies_onehot_full.csv")
+    df = pd.read_csv("policies_onehot_full_absolute_R.csv")
 
     nrows = int(round(np.sqrt(len(countries))))
     ncols = len(countries) // nrows
-
+    
     plt.figure(figsize=(6 * ncols + 1, 6 * nrows))
 
     axes = []
@@ -365,6 +376,7 @@ def plot_single_policy(model):
             mu = mu[arange, max_component].detach().cpu().numpy()
             sigma = torch.sqrt(sigma_sqr[arange, max_component]).detach().cpu().numpy()
 
+            
             ax = plt.gca()
             ax.plot(np.linspace(0, 1, 101), mu, label=j)
             ax.fill_between(np.linspace(0, 1, 101), mu - sigma, mu + sigma, alpha=0.2)
@@ -383,6 +395,7 @@ def plot_policies_vaccination(model, vaccination):
     x[1:, :-2] = policies
     x[:, -1] = vaccination * np.ones(model.n_policies + 1)
     x = torch.Tensor(x)
+
 
     mu, sigma_sqr, pi = model(x)
     max_component = torch.argmax(pi, dim=1)
@@ -458,9 +471,284 @@ def plot_policies_vaccination(model, vaccination):
         "H8 2",
         "H8 3",
     ]
-    plt.xticks(np.arange(model.n_policies + 1), xticks, rotation='vertical')
-
+    plt.xticks(np.arange(model.n_policies+1), xticks, rotation='vertical')
+    
     # plt.show()
+
+
+
+
+def knockout_evaluation(model):
+    df = pd.read_csv("policies_onehot_full_absolute_R.csv")
+    df.pop("country")
+    
+    y = df.pop("reproduction_rate").to_numpy()[..., np.newaxis]
+    x = df.to_numpy()
+    # drop index
+    x = x[:, 1:]
+    x = torch.Tensor(x)
+
+    n_policies = 46
+
+    means = np.zeros(n_policies)
+    stds = np.zeros(n_policies)
+    ci = np.zeros(n_policies)
+
+    for policy_index in range(n_policies):
+        print(f"policy_index: {policy_index+1}/{n_policies}")
+        mask = (x[:, policy_index] == 1)
+        
+        if torch.sum(mask) == 0:
+            continue
+            
+        
+        features = x[mask,:]
+        base_mu, base_sigma_sqr, base_pi = model(features)
+        max_component = torch.argmax(base_pi, dim=1)
+        arange = torch.arange(len(max_component))
+        base_mu = base_mu[arange, max_component].detach().cpu().numpy()
+        base_sigma = torch.sqrt(base_sigma_sqr[arange, max_component]).detach().cpu().numpy()
+
+        features[:, policy_index] = 0
+        knockout_mu, knockout_sigma_sqr, knockout_pi = model(features)
+        max_component = torch.argmax(knockout_pi, dim=1)
+        arange = torch.arange(len(max_component))
+        knockout_mu = knockout_mu[arange, max_component].detach().cpu().numpy()
+        knockout_sigma = torch.sqrt(knockout_sigma_sqr[arange, max_component]).detach().cpu().numpy()
+
+        diff = base_mu - knockout_mu
+        diff = diff[~np.isnan(diff)]
+
+        means[policy_index] = np.mean(diff)
+        stds[policy_index] = np.std(diff)
+        ci[policy_index] = stats.sem(diff) * stats.t.ppf((1 + 0.95) / 2., len(diff)-1)
+
+
+
+    print(means)
+    print(stds)
+
+    yticks = np.array([
+        "C1 1",
+        "C1 2",
+        "C1 3",
+
+        "C2 1",
+        "C2 2",
+        "C2 3",
+
+        "C3 1",
+        "C3 2",
+
+        "C4 1",
+        "C4 2",
+        "C4 3",
+        "C4 4",
+
+        "C5 1",
+        "C5 2",
+
+        "C6 1",
+        "C6 2",
+        "C6 3",
+
+        "C7 1",
+        "C7 2",
+
+        "C8 1",
+        "C8 2",
+        "C8 3",
+        "C8 4",
+
+        "E1 1",
+        "E1 2",
+
+        "E2 1",
+        "E2 2",
+
+        "H1 1",
+        "H1 2",
+
+        "H2 1",
+        "H2 2",
+        "H2 3",
+
+        "H3 1",
+        "H3 2",
+
+        "H6 1",
+        "H6 2",
+        "H6 3",
+        "H6 4",
+
+        "H7 1",
+        "H7 2",
+        "H7 3",
+        "H7 4",
+        "H7 5",
+
+        "H8 1",
+        "H8 2",
+        "H8 3",
+    ])
+    plt.figure(figsize=(12, 12))
+    plt.errorbar(means, -np.arange(n_policies), xerr=ci, fmt='.')
+    plt.axvline(x=0.0, color="b")
+    plt.yticks(-np.arange(n_policies), yticks, rotation='horizontal')
+    for i, tick in enumerate(plt.gca().get_yticklabels()):
+        tick.set_color("green" if means[i] < 0 else "red")
+
+    sorted_indices = np.argsort(means)
+    plt.figure(figsize=(12, 12))
+    plt.errorbar(means[sorted_indices], -np.arange(n_policies), xerr=ci[sorted_indices], fmt='.')
+    plt.axvline(x=0.0, color="b")
+    plt.yticks(-np.arange(n_policies), yticks[sorted_indices], rotation='horizontal')
+    for i, tick in enumerate(plt.gca().get_yticklabels()):
+        tick.set_color("green" if means[sorted_indices][i] < 0 else "red")
+
+
+def knockout_evaluation_countries(model):
+    df = pd.read_csv("policies_onehot_full_absolute_R.csv")
+    
+    y = df.pop("reproduction_rate").to_numpy()[..., np.newaxis]
+
+    n_policies = 46
+
+    means = np.zeros(n_policies)
+    stds = np.zeros(n_policies)
+    ci = np.zeros(n_policies)
+
+    for policy_index in range(n_policies):
+        print(f"policy_index: {policy_index+1}/{n_policies}")
+
+        diff = np.array([])
+
+        for country in df["country"].unique():
+            df_c = df.loc[df["country"] == country].copy()
+            df_c.pop("country")
+        
+            x = df_c.to_numpy()
+            # drop index
+            x = x[:, 1:]
+            x = torch.Tensor(x)
+        
+            mask = (x[:, policy_index] == 1)
+            
+            if torch.sum(mask) == 0:
+                continue
+
+
+            starting_days = x[:,policy_index].cpu().numpy()
+            starting_days = starting_days[1:] - starting_days[:-1]
+            starting_days = np.where(starting_days<0)[0]
+            if len(starting_days) == 0:
+                starting_days = [0]
+
+
+            for d in starting_days:
+                features = x[d:d+21,:]
+                base_mu, base_sigma_sqr, base_pi = model(features)
+                max_component = torch.argmax(base_pi, dim=1)
+                arange = torch.arange(len(max_component))
+                base_mu = base_mu[arange, max_component].detach().cpu().numpy()
+                base_sigma = torch.sqrt(base_sigma_sqr[arange, max_component]).detach().cpu().numpy()
+
+                features[:, policy_index] = 0
+                knockout_mu, knockout_sigma_sqr, knockout_pi = model(features)
+                max_component = torch.argmax(knockout_pi, dim=1)
+                arange = torch.arange(len(max_component))
+                knockout_mu = knockout_mu[arange, max_component].detach().cpu().numpy()
+                knockout_sigma = torch.sqrt(knockout_sigma_sqr[arange, max_component]).detach().cpu().numpy()
+
+                diff = np.append(diff, base_mu - knockout_mu)
+
+        diff = diff[~np.isnan(diff)]
+
+        means[policy_index] = np.mean(diff)
+        stds[policy_index] = np.std(diff)
+        ci[policy_index] = stats.sem(diff) * stats.t.ppf((1 + 0.95) / 2., len(diff)-1)
+
+
+    print(means)
+    print(stds)
+
+    yticks = np.array([
+        "C1 1",
+        "C1 2",
+        "C1 3",
+
+        "C2 1",
+        "C2 2",
+        "C2 3",
+
+        "C3 1",
+        "C3 2",
+
+        "C4 1",
+        "C4 2",
+        "C4 3",
+        "C4 4",
+
+        "C5 1",
+        "C5 2",
+
+        "C6 1",
+        "C6 2",
+        "C6 3",
+
+        "C7 1",
+        "C7 2",
+
+        "C8 1",
+        "C8 2",
+        "C8 3",
+        "C8 4",
+
+        "E1 1",
+        "E1 2",
+
+        "E2 1",
+        "E2 2",
+
+        "H1 1",
+        "H1 2",
+
+        "H2 1",
+        "H2 2",
+        "H2 3",
+
+        "H3 1",
+        "H3 2",
+
+        "H6 1",
+        "H6 2",
+        "H6 3",
+        "H6 4",
+
+        "H7 1",
+        "H7 2",
+        "H7 3",
+        "H7 4",
+        "H7 5",
+
+        "H8 1",
+        "H8 2",
+        "H8 3",
+    ])
+    plt.figure(figsize=(12, 12))
+    plt.errorbar(means, -np.arange(n_policies), xerr=ci, fmt='.')
+    plt.axvline(x=0.0, color="b")
+    plt.yticks(-np.arange(n_policies), yticks, rotation='horizontal')
+    for i, tick in enumerate(plt.gca().get_yticklabels()):
+        tick.set_color("green" if means[i] < 0 else "red")
+
+    sorted_indices = np.argsort(means)
+    plt.figure(figsize=(12, 12))
+    plt.errorbar(means[sorted_indices], -np.arange(n_policies), xerr=ci[sorted_indices], fmt='.')
+    plt.axvline(x=0.0, color="b")
+    plt.yticks(-np.arange(n_policies), yticks[sorted_indices], rotation='horizontal')
+    for i, tick in enumerate(plt.gca().get_yticklabels()):
+        tick.set_color("green" if means[sorted_indices][i] < 0 else "red")
 
 
 def main():
@@ -477,7 +765,7 @@ def main():
     logger = TensorBoardLogger(save_dir="lightning_logs", name="", default_hp_metric=False, log_graph=True)
 
     trainer = pl.Trainer(
-        max_epochs=100,
+        max_epochs=300,
         callbacks=callbacks,
         logger=logger,
         gpus=1,
@@ -495,15 +783,19 @@ def main():
 
     countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
 
-    ylims = plot_countries(model=pt, countries=countries, randomize_policies=True)
+    knockout_evaluation(model=pt)
+    knockout_evaluation_countries(model=pt)
+
+    # ylims = plot_countries(model=pt, countries=countries, randomize_policies=True)
     ylims = plot_countries(model=pt, countries=countries, randomize_policies=False)
 
-    plot_countries_heatmap(model=pt, ylims=ylims, countries=countries, randomize_policies=True)
+    # plot_countries_heatmap(model=pt, ylims=ylims, countries=countries, randomize_policies=True)
     plot_countries_heatmap(model=pt, ylims=ylims, countries=countries, randomize_policies=False)
 
-    plot_single_policy(model=pt)
-    plot_policies_vaccination(model=pt, vaccination=0)
-    plot_policies_vaccination(model=pt, vaccination=1)
+    #plot_single_policy(model=pt)
+    #plot_policies_vaccination(model=pt, vaccination=0)
+    # plot_policies_vaccination(model=pt, vaccination=1)
+
 
     plt.show()
 
