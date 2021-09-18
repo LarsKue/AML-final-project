@@ -26,7 +26,7 @@ class DistributedGaussianProcess(GPy.core.model.Model):
     def partitions(self):
         raise NotImplementedError
 
-    def join(self, means, variances):
+    def join(self, x, means, variances):
         raise NotImplementedError
 
     def predict(self, x):
@@ -44,7 +44,7 @@ class DistributedGaussianProcess(GPy.core.model.Model):
         means = np.array(means)
         variances = np.array(variances)
 
-        return self.join(means, variances)
+        return self.join(x, means, variances)
 
     def log_likelihood(self):
         likelihoods = []
