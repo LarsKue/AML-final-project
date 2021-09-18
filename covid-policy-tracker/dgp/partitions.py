@@ -10,7 +10,12 @@ class Partition:
         self.y = y
 
 
-class DisjointPartition:
+class Partitioner:
+    def partitions(self):
+        raise NotImplementedError
+
+
+class DisjointPartition(Partitioner):
     """
     Base Class for Disjoint Partitioning in a DistributedGaussianProcess
     """
@@ -29,7 +34,7 @@ class DisjointPartition:
         return self._partitions
 
 
-class RandomPartition:
+class RandomPartition(Partitioner):
     """
     Base Class for Random Partitioning in a DistributedGaussianProcess
     """
@@ -43,3 +48,20 @@ class RandomPartition:
 
     def partitions(self):
         return self._partitions
+
+
+class CommunicationPartition(Partitioner):
+    """
+    Base Class for a communication partition in a DistributedGaussianProcess
+    Intended for multiple inheritance with another Partitioner
+    """
+    def __init__(self, x, y, size, **kwargs):
+        partition_indices = np.random.choice(len(x), size=size)
+        self._communication_partition = Partition(x[partition_indices], y[partition_indices])
+
+        # call the next partitioner (e.g. DisjointPartition)
+        super(CommunicationPartition, self).__init__(x, y, **kwargs)
+
+    def partitions(self):
+        yield self._communication_partition
+        yield from super(CommunicationPartition, self).partitions()

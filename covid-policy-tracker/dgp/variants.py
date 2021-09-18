@@ -1,7 +1,7 @@
 import numpy as np
 
 from .core import DistributedGaussianProcess
-from .partitions import DisjointPartition
+from .partitions import DisjointPartition, CommunicationPartition
 
 
 class ProductOfExperts(DisjointPartition, DistributedGaussianProcess):
@@ -27,7 +27,7 @@ class CaoFleetPoE(ProductOfExperts):
         prior = np.diag(self._gp.kern.K(x)).reshape(-1, 1)
 
         # change in entropy from prior to posterior
-        beta = 0.5 * np.abs(np.log(2 * np.pi * variances) - np.log(2 * np.pi * prior))
+        beta = 0.5 * (np.log(prior) - np.log(variances))
 
         # sigma_k ** -2
         inv_var = 1 / variances
@@ -71,4 +71,59 @@ class BayesianCommitteeMachine(DisjointPartition, DistributedGaussianProcess):
         mean = var * np.sum(inv_var * means, axis=0)
 
         return mean, var
+
+
+class RobustBCM(BayesianCommitteeMachine):
+    """
+    Robust Bayesian Committee Machine as described in https://arxiv.org/pdf/1502.02843.pdf
+    """
+    def join(self, x, means, variances):
+        prior = np.diag(self._gp.kern.K(x)).reshape(-1, 1)
+
+        inv_var = 1 / variances
+
+        # weights are the same as in CaoFleetPoE
+        beta = 0.5 * (np.log(prior) - np.log(variances))
+
+        # sigma_bcm ** 2
+        var = 1 / (np.sum(beta * inv_var, axis=0) + (1 - np.sum(beta, axis=0)) / prior)
+
+        # mu_bcm
+        mean = var * np.sum(beta * inv_var * means, axis=0)
+
+        return mean, var
+
+
+class GeneralisedRobustBCM(CommunicationPartition, BayesianCommitteeMachine):
+    """
+    Generalised Robust Bayesian Committe Machine as described in https://arxiv.org/pdf/1806.00720.pdf
+    """
+    def join(self, x, means, variances):
+        # mu_c
+        mean_c = means[0]
+        # mu_+i
+        means = means[1:]
+
+        # sigma_c ** 2
+        var_c = variances[0]
+        # sigma_+i ** 2
+        variances = variances[1:]
+
+        # beta_i for i = 2...M
+        beta = 0.5 * (np.log(var_c) - np.log(variances))
+        beta[0] = 1.0
+
+        inv_var_c = 1 / var_c
+        inv_var = 1 / variances
+
+        # sigma_A ** 2
+        var = 1 / (np.sum(beta * inv_var, axis=0) + (1 - np.sum(beta, axis=0)) * inv_var_c)
+
+        mean = var * (np.sum(beta * inv_var * means, axis=0) + (1 - np.sum(beta, axis=0)) * inv_var_c * mean_c)
+
+        return mean, var
+
+
+
+
 

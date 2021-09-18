@@ -1,4 +1,4 @@
-
+import GPy
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -102,29 +102,52 @@ def main():
 
 def test():
 
+    np.random.seed(0)
+
     x = np.linspace(0, 2 * np.pi, 1000)
     y = np.sin(x)
+
+    # add noise
+    y = y + 0.05 * x ** 3 * np.random.normal(0.0, 0.1, size=y.shape)
 
     x = x[:, None]
     y = y[:, None]
 
     # drop random parts
-    train_idx = np.random.choice(len(x), size=20)
+    train_idx = np.random.choice(len(x), size=1000)
+
+    kernel = GPy.kern.RBF(input_dim=x.shape[1]) + GPy.kern.White(input_dim=x.shape[1])
+    full_gaussian = GPy.models.GPRegression(x, y, kernel=kernel)
+
+    full_gaussian.optimize()
+
+    fgx = x
+    fgmean, fgvar = full_gaussian.predict(x)
+    fgstd = np.sqrt(fgvar)
+    fgl, fgu = fgmean - 1.96 * fgstd, fgmean + 1.96 * fgstd
+
+    # this one has an extra size parameter for the communication partition
+    def grBCM(x, y, m):
+        size = int(0.1 * len(x))
+        return dgp.GeneralisedRobustBCM(x, y, size, m=m)
+
 
     models = [
         dgp.ProductOfExperts,
         dgp.CaoFleetPoE,
         dgp.GeneralisedPoE,
         dgp.BayesianCommitteeMachine,
+        dgp.RobustBCM,
+        grBCM,
     ]
 
-    nrows = 2
+    nrows = 3
     ncols = 2
 
     plt.figure(figsize=(6 * ncols + 1, 6 * nrows))
 
     for i, model in enumerate(models):
-        model = model(x[train_idx], y[train_idx], m=5)
+        model = model(x[train_idx], y[train_idx], m=20)
         model.optimize()
 
         mean, var = model.predict(x)
@@ -134,7 +157,8 @@ def test():
         l, u = mean - 1.96 * std, mean + 1.96 * std
 
         plt.subplot(nrows, ncols, i + 1)
-        plt.plot(x, y, color="C0", label="Actual")
+        plt.plot(fgx, fgmean, color="black", label="Full Gaussian")
+        plt.fill_between(fgx.flat, fgl.flat, fgu.flat, color="black", alpha=0.2)
         plt.plot(x, mean, color="C1", label="Predicted")
         plt.fill_between(x.flat, l.flat, u.flat, color="C1", label="95% Confidence", alpha=0.2)
         plt.plot(x[train_idx], y[train_idx], linewidth=0, marker="x", color="C2", label="Train Points")
