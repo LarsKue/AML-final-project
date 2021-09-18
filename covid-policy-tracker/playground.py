@@ -109,17 +109,17 @@ def create_policies_oh(responses, testing, country_name, single_policy):
     # relevant data from testing is in vaccinations and reproduction rate
     policies_oh_single["vaccination_rate"] = testing_single["people_fully_vaccinated_per_hundred"].fillna(0.0)
 
-    reproduction_rate = testing_single["reproduction_rate"].to_list()
-    reproduction_rate.append(math.nan)
-    reproduction_rate = np.array(reproduction_rate)
-    difference = reproduction_rate[1:] - reproduction_rate[:-1]
-    mask = np.isnan(difference)
-    difference[mask] = 0
-    difference = savgol_filter(difference, 21, 3)
-    difference[mask] = np.nan
+    # reproduction_rate = testing_single["reproduction_rate"].to_list()
+    # reproduction_rate.append(math.nan)
+    # reproduction_rate = np.array(reproduction_rate)
+    # difference = reproduction_rate[1:] - reproduction_rate[:-1]
+    # mask = np.isnan(difference)
+    # difference[mask] = 0
+    # difference = savgol_filter(difference, 21, 3)
+    # difference[mask] = np.nan
 
-    policies_oh_single["reproduction_rate"] = difference
-    # policies_oh_single["reproduction_rate"] = testing_single["reproduction_rate"]
+    # policies_oh_single["reproduction_rate"] = difference
+    policies_oh_single["reproduction_rate"] = testing_single["reproduction_rate"]
 
     policies_oh_single["country"] = country_name
 
@@ -220,12 +220,12 @@ policies_oh_single_policy = create_policies_oh(responses, testing, intersection[
 for country_name in intersection[1:]:
     policies_oh_single_policy = policies_oh_single_policy.append(
         create_policies_oh(responses, testing, country_name, False))
-policies_oh_single_policy.to_csv("policies_onehot_full_wo_Germany.csv")
+policies_oh_single_policy.to_csv("policies_onehot_full_wo_Germany_absolute_R.csv")
 
 policies_oh_full = create_policies_oh(responses, testing, intersection[0], False)
 for country_name in intersection[1:]:
     policies_oh_full = policies_oh_full.append(create_policies_oh(responses, testing, country_name, False))
 policies_oh_full = policies_oh_full.append(create_policies_oh(responses, testing, "Germany", False))
-policies_oh_full.to_csv("policies_onehot_full.csv")
+policies_oh_full.to_csv("policies_onehot_full_absolute_R.csv")
 
-create_policies_oh(responses, testing, "Germany", False).to_csv("policies_onehot_Germany.csv")
+create_policies_oh(responses, testing, "Germany", False).to_csv("policies_onehot_Germany_absolute_R.csv")
