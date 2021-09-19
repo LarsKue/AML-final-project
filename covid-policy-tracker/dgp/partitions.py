@@ -10,12 +10,7 @@ class Partition:
         self.y = y
 
 
-class Partitioner:
-    def partitions(self):
-        raise NotImplementedError
-
-
-class DisjointPartition(Partitioner):
+class DisjointPartition:
     """
     Base Class for Disjoint Partitioning in a DistributedGaussianProcess
     """
@@ -34,7 +29,7 @@ class DisjointPartition(Partitioner):
         return self._partitions
 
 
-class RandomPartition(Partitioner):
+class RandomPartition:
     """
     Base Class for Random Partitioning in a DistributedGaussianProcess
     """
@@ -50,18 +45,31 @@ class RandomPartition(Partitioner):
         return self._partitions
 
 
-class CommunicationPartition(Partitioner):
-    """
-    Base Class for a communication partition in a DistributedGaussianProcess
-    Intended for multiple inheritance with another Partitioner
-    """
-    def __init__(self, x, y, size, **kwargs):
-        partition_indices = np.random.choice(len(x), size=size)
-        self._communication_partition = Partition(x[partition_indices], y[partition_indices])
+class CommunicationPartition:
+    def __init__(self, x, y, csize, m, **kwargs):
+        n = x.shape[0]
+        cp_indices = np.random.choice(n, size=csize)
+        cp = Partition(x[cp_indices], y[cp_indices])
 
-        # call the next partitioner (e.g. DisjointPartition)
-        super(CommunicationPartition, self).__init__(x, y, **kwargs)
+        # cp is disjoint with other partitions
+        x = np.delete(x, cp_indices, axis=0)
+        y = np.delete(y, cp_indices, axis=0)
+
+        n = x.shape[0]
+
+        indices = np.arange(n)
+        np.random.shuffle(indices)
+
+        partition_indices = np.array_split(indices, m)
+
+        p = [Partition(np.concatenate((cp.x, x[idx])), np.concatenate((cp.y, y[idx]))) for idx in partition_indices]
+
+        self._partitions = [
+            cp,
+            *p
+        ]
+
+        super(CommunicationPartition, self).__init__(**kwargs)
 
     def partitions(self):
-        yield self._communication_partition
-        yield from super(CommunicationPartition, self).partitions()
+        return self._partitions

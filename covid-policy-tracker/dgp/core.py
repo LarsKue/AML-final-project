@@ -21,6 +21,11 @@ class DistributedGaussianProcess(GPy.core.model.Model):
             self._gp = GPy.models.GPRegression(p.x, p.y, kernel=self.kernel)
             break
 
+        print("Partition sizes:", end=" ")
+        for p in self.partitions():
+            print(p.x.shape, end=" ")
+        print()
+
         self.link_parameters(self._gp)
 
     def partitions(self):

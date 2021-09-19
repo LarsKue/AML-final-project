@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy.special import erfinv
+import pickle
 
 import dgp.variants as dgp
 from datamodule import ResponseDataModule
@@ -65,7 +66,9 @@ def plot_countries(model, countries=("Germany",)):
     for ax in axes.flat:
         ax.set_ylim(ylims)
 
-    plt.savefig("test.png")
+    modelname = model.__class__.__name__
+    plt.suptitle(modelname)
+    plt.savefig(f"{modelname}.png")
     plt.show()
 
 
@@ -76,8 +79,6 @@ def main():
     dm.setup()
 
     df = dm.df
-
-    # df = df[df["country"] == "Germany"]
 
     df.pop("country")
 
@@ -91,13 +92,37 @@ def main():
     print(train_x.shape)
     print(train_y.shape)
 
-    model = dgp.ProductOfExperts(train_x, train_y, m=20)
+    # this one has an extra size parameter for the communication partition
+    # also use significantly more experts since this method is
+    # 1) robust against this and 2) much slower otherwise
+    def grBCM(x, y, m):
+        csize = int(0.01 * len(x))
+        return dgp.GeneralisedRobustBCM(x, y, csize=csize, m=8 * m)
 
-    model.optimize()
+    models = [
+        dgp.ProductOfExperts,
+        dgp.CaoFleetPoE,
+        dgp.GeneralisedPoE,
+        dgp.BayesianCommitteeMachine,
+        dgp.RobustBCM,
+        # grBCM,
+    ]
 
     countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
 
-    plot_countries(model=model, countries=countries)
+    for i, model in enumerate(models):
+        model = model(train_x, train_y, m=32)
+        modelname = model.__class__.__name__
+        print("Model:", modelname)
+
+        print("Optimizing...")
+        model.optimize()
+
+        print("Plotting...")
+        plot_countries(model=model, countries=countries)
+
+        with open(f"{modelname}.dump", "wb+") as f:
+            pickle.dump(model, f)
 
 
 def test():
@@ -128,9 +153,8 @@ def test():
 
     # this one has an extra size parameter for the communication partition
     def grBCM(x, y, m):
-        size = int(0.1 * len(x))
-        return dgp.GeneralisedRobustBCM(x, y, size, m=m)
-
+        csize = int(0.1 * len(x))
+        return dgp.GeneralisedRobustBCM(x, y, csize=csize, m=m)
 
     models = [
         dgp.ProductOfExperts,
@@ -147,7 +171,7 @@ def test():
     plt.figure(figsize=(6 * ncols + 1, 6 * nrows))
 
     for i, model in enumerate(models):
-        model = model(x[train_idx], y[train_idx], m=20)
+        model = model(x[train_idx], y[train_idx], m=128)
         model.optimize()
 
         mean, var = model.predict(x)
@@ -168,7 +192,6 @@ def test():
     plt.show()
 
 
-
 if __name__ == "__main__":
-    # main()
-    test()
+    main()
+    # test()

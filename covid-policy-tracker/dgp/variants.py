@@ -24,7 +24,7 @@ class CaoFleetPoE(ProductOfExperts):
     Generalised Product of Experts with weights for each expert as described in https://arxiv.org/pdf/1410.7827.pdf
     """
     def join(self, x, means, variances):
-        prior = np.diag(self._gp.kern.K(x)).reshape(-1, 1)
+        prior = self._gp.kern.Kdiag(x).reshape(-1, 1) + self._gp.likelihood.variance
 
         # change in entropy from prior to posterior
         beta = 0.5 * (np.log(prior) - np.log(variances))
@@ -59,7 +59,7 @@ class BayesianCommitteeMachine(DisjointPartition, DistributedGaussianProcess):
     Bayesian Committee Machine as described in https://arxiv.org/pdf/1502.02843.pdf
     """
     def join(self, x, means, variances):
-        prior = np.diag(self._gp.kern.K(x)).reshape(-1, 1)
+        prior = self._gp.kern.Kdiag(x).reshape(-1, 1) + self._gp.likelihood.variance
 
         M = len(means)
 
@@ -78,7 +78,7 @@ class RobustBCM(BayesianCommitteeMachine):
     Robust Bayesian Committee Machine as described in https://arxiv.org/pdf/1502.02843.pdf
     """
     def join(self, x, means, variances):
-        prior = np.diag(self._gp.kern.K(x)).reshape(-1, 1)
+        prior = self._gp.kern.Kdiag(x).reshape(-1, 1) + self._gp.likelihood.variance
 
         inv_var = 1 / variances
 
@@ -94,7 +94,7 @@ class RobustBCM(BayesianCommitteeMachine):
         return mean, var
 
 
-class GeneralisedRobustBCM(CommunicationPartition, BayesianCommitteeMachine):
+class GeneralisedRobustBCM(CommunicationPartition, DistributedGaussianProcess):
     """
     Generalised Robust Bayesian Committe Machine as described in https://arxiv.org/pdf/1806.00720.pdf
     """
