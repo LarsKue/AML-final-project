@@ -107,7 +107,7 @@ def create_policies_oh(responses, testing, country_name, single_policy):
     policies_oh_single = policies_oh_from_indices(policies)
 
     # relevant data from testing is in vaccinations and reproduction rate
-    policies_oh_single["vaccination_rate"] = testing_single["people_fully_vaccinated_per_hundred"].fillna(0.0)
+    policies_oh_single["vaccination_rate"] = testing_single["people_fully_vaccinated_per_hundred"].fillna(0.0) / 100
 
     # reproduction_rate = testing_single["reproduction_rate"].to_list()
     # reproduction_rate.append(math.nan)
