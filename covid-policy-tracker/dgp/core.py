@@ -15,9 +15,16 @@ class DistributedGaussianProcess(GPy.core.model.Model):
 
     def __init__(self, kernel=None):
         super(DistributedGaussianProcess, self).__init__(self.name)
+        self.training = False
+
         # initialize the gp module and kernel with size of a single partition
         for p in self.partitions():
-            self.kernel = kernel or GPy.kern.RBF(input_dim=p.x.shape[1]) + GPy.kern.White(input_dim=p.x.shape[1])
+            if not kernel:
+                kernel = GPy.kern.RBF(input_dim=p.x.shape[1]) + GPy.kern.White(input_dim=p.x.shape[1])
+            else:
+                kernel = kernel(p.x.shape[1])
+
+            self.kernel = kernel
             self._gp = GPy.models.GPRegression(p.x, p.y, kernel=self.kernel)
             break
 
@@ -33,6 +40,11 @@ class DistributedGaussianProcess(GPy.core.model.Model):
 
     def join(self, x, means, variances):
         raise NotImplementedError
+
+    def optimize(self, *args, **kwargs):
+        self.training = True
+        super(DistributedGaussianProcess, self).optimize(*args, **kwargs)
+        self.training = False
 
     def predict(self, x):
         means = []

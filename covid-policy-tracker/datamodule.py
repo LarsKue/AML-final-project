@@ -22,7 +22,7 @@ class ResponseDataModule(pl.LightningDataModule):
 
     def prepare_data(self):
         # load from csv
-        self.df = pd.read_csv("policies_onehot_full.csv")
+        self.df = pd.read_csv("policies_onehot_full_absolute_R.csv")
 
         df = self.df.copy()
         df.pop("country")
