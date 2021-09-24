@@ -12,10 +12,12 @@ import re
 
 from datamodule import ResponseDataModule
 
+from sklearn.model_selection import train_test_split
+import datetime as dt
 
 
 class FactorizedGaussianProcess(Model):
-    def __init__(self, X, Y, M, normalize_X=False, normalize_Y=False, partition_type="disjoint", kernel=None):
+    def __init__(self, X, Y, M, normalize_X=False, normalize_Y=False, partition_type="disjoint", kernel=None, communication_set_ratio=None, verbose=False):
         super(FactorizedGaussianProcess, self).__init__("FactorizedGaussianProcess")
 
         self.X = X
@@ -31,6 +33,8 @@ class FactorizedGaussianProcess(Model):
         # cached variables for NPAE prediction
         self.NPAE_K_cross_cache = None
         self.NPAE_K_invs_cache = None
+
+        self.verbose = verbose
         
 
         if partition_type == "random":
@@ -41,6 +45,18 @@ class FactorizedGaussianProcess(Model):
             self.partition = np.array_split(indices, self.M)
         else:
             raise ValueError(f"Unknown partition type: {partition_type}")
+
+        if communication_set_ratio is not None:
+            n_c = int(communication_set_ratio * len(X))
+            self.communication_partition = np.random.choice(len(X), size=n_c, replace=False)
+
+            rest_indices = np.arange(len(X))
+            rest_indices = np.setdiff1d(rest_indices, self.communication_partition)
+            np.random.shuffle(rest_indices)
+            self.augmented_partition = np.array_split(rest_indices, self.M-1)
+            for i in range(len(self.augmented_partition)):
+                self.augmented_partition[i] = np.append(self.communication_partition, self.augmented_partition[i])
+
 
         if kernel is None:
             self.kernel = GPy.kern.RBF(input_dim=self.X.shape[1]) + GPy.kern.White(input_dim=self.X.shape[1])
@@ -54,6 +70,9 @@ class FactorizedGaussianProcess(Model):
             self.Y = (self.Y - self.Y_mean) / self.Y_std
 
         if self.normalize_X:
+            # self.X_min = np.min(self.X, axis=0)
+            # self.X_max = np.max(self.X, axis=0)
+            # self.X = (self.X - self.X_min) / (self.X_max - self.X_min)
             self.X_mean = np.mean(self.X, axis=0)
             self.X_std = np.std(self.X, axis=0)
             self.X = (self.X - self.X_mean) / self.X_std
@@ -75,7 +94,8 @@ class FactorizedGaussianProcess(Model):
         return self.gpr.log_likelihood()
 
     def log_likelihood(self):
-        print("log_likelihood")
+        if self.verbose:
+            print("log_likelihood")
         res = np.zeros(self.M)
         for k in range(self.M):
             res[k] = self.log_likelihood_k(k)
@@ -91,7 +111,8 @@ class FactorizedGaussianProcess(Model):
         return self.gpr._log_likelihood_gradients()
 
     def _log_likelihood_gradients(self):
-        print("log_likelihood_gradients")
+        if self.verbose:
+            print("log_likelihood_gradients")
         res = np.zeros(shape=(self.M, len(self.gradient)))
         for k in range(self.M):
             res[k] = self._log_likelihood_gradients_k(k)
@@ -124,6 +145,28 @@ class FactorizedGaussianProcess(Model):
         prediction_k = self.gpr.predict(X_test)
         
         return prediction_k
+
+    def predict_communication(self, X_test):
+        X_c = self.X[self.communication_partition,:]
+        Y_c = self.Y[self.communication_partition,:]
+        
+        self.gpr.set_XY(X_c, Y_c)
+        
+        prediction_c = self.gpr.predict(X_test)
+        
+        return prediction_c
+        
+    def predict_augmented_k(self, k, X_test):
+        X_plus_k = self.X[self.augmented_partition[k], :]
+        Y_plus_k = self.Y[self.augmented_partition[k], :]
+        
+        self.gpr.set_XY(X_plus_k, Y_plus_k)
+        
+        prediction_plus_k = self.gpr.predict(X_test)
+        
+        return prediction_plus_k
+        
+        
 
     def NPAE_cross_kernel_and_inverses(self):
         kernel_function = self.gpr.kern.K
@@ -181,6 +224,7 @@ class FactorizedGaussianProcess(Model):
 
     def predict(self, X_test, aggregation_type="rBCM"):
         if self.normalize_X:
+            # X_test = (X_test.copy() - self.X_min) / (self.X_max - self.X_min)
             X_test = (X_test.copy() - self.X_mean) / self.X_std
         
         
@@ -222,7 +266,7 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "GPoE":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = self.gpr.kern.Kdiag(X_test).reshape(-1,1) + self.gpr.likelihood.variance
 
             for k in range(self.M):
                 print(f"expert {k+1}/{self.M}")
@@ -237,7 +281,7 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "GPoE_constant_beta":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = self.gpr.kern.Kdiag(X_test).reshape(-1,1) + self.gpr.likelihood.variance
 
             for k in range(self.M):
                 print(f"expert {k+1}/{self.M}")
@@ -251,7 +295,7 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "BCM":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = self.gpr.kern.Kdiag(X_test).reshape(-1,1) + self.gpr.likelihood.variance
             inverse_variance += (1 - self.M) / prior_variance
 
             for k in range(self.M):
@@ -264,7 +308,7 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "rBCM":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = self.gpr.kern.Kdiag(X_test).reshape(-1,1) + self.gpr.likelihood.variance
             beta_k_sum = np.zeros(shape=(X_test.shape[0], 1))
             for k in range(self.M):
                 print(f"expert {k+1}/{self.M}")
@@ -280,7 +324,7 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "grBCM":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = self.gpr.kern.Kdiag(X_test).reshape(-1,1) + self.gpr.likelihood.variance
             beta_k_sum = np.zeros(shape=(X_test.shape[0], 1))
             
             communication_index = 0
@@ -304,7 +348,7 @@ class FactorizedGaussianProcess(Model):
             variance = 1 / inverse_variance
 
         elif aggregation_type == "NPAE":
-            prior_variance = np.diag(self.gpr.kern.K(X_test)).reshape(-1,1) + self.gpr.likelihood.variance
+            prior_variance = self.gpr.kern.Kdiag(X_test).reshape(-1,1) + self.gpr.likelihood.variance
             
             K_invs, K_cross = self.NPAE_cross_kernel_and_inverses()
             
@@ -362,7 +406,7 @@ class FactorizedGaussianProcess(Model):
                 # SPV
                 # print(f"\tSPV")
                 variance_stack = np.hstack((variances[1], prediction_k[1]))
-                mean_stack = np.hstack((mean, prediction_k[0]))
+                mean_stack = np.hstack((means[1], prediction_k[0]))
                 indices = np.argmin(variance_stack, axis=1)
                 arange = np.arange(variance_stack.shape[0])
                 means[1] = mean_stack[arange, indices][:, np.newaxis]
@@ -397,20 +441,20 @@ class FactorizedGaussianProcess(Model):
                 inverse_variances[6] += beta_k / prediction_k[1]
                 beta_k_sum_rBCM += beta_k
                 
-                # # grBCM
-                # # print(f"\tgrBCM")
-                # if k == 0:
-                #     prediction_c = prediction_k
-                # else:
-                #     prediction_k_plus = self.predict_k_communication(k, communication_index, X_test)
-                #     if k == 1:
-                #         beta_k = 1
-                #     else:
-                #         beta_k = 0.5 * (np.log(prediction_c[1]) - np.log(prediction_k_plus[1])).reshape(-1,1)
+                # grBCM
+                # print(f"\tgrBCM")
+                if k == 0:
+                    prediction_c = prediction_k
+                else:
+                    prediction_k_plus = self.predict_k_communication(k, communication_index, X_test)
+                    if k == 1:
+                        beta_k = 1
+                    else:
+                        beta_k = 0.5 * (np.log(prediction_c[1]) - np.log(prediction_k_plus[1])).reshape(-1,1)
 
-                #     means[7] += beta_k * prediction_k_plus[0] / prediction_k_plus[1]
-                #     inverse_variances[7] += beta_k / prediction_k_plus[1]
-                #     beta_k_sum_grBCM += beta_k
+                    means[7] += beta_k * prediction_k_plus[0] / prediction_k_plus[1]
+                    inverse_variances[7] += beta_k / prediction_k_plus[1]
+                    beta_k_sum_grBCM += beta_k
 
             
             # PoE
@@ -434,12 +478,16 @@ class FactorizedGaussianProcess(Model):
             means[6] = means[6] / inverse_variances[6]
             variances[6] = 1 / inverse_variances[6]
             
-            # # grBCM
-            # inverse_variances[7] += (1 - beta_k_sum_grBCM) / prediction_c[1]
-            # means[7] += (1 - beta_k_sum_grBCM) * prediction_c[0] / prediction_c[1]
-            # means[7] = means[7] / inverse_variances[7]
-            # variances[7] = 1 / inverse_variances[7]
+            # grBCM
+            inverse_variances[7] += (1 - beta_k_sum_grBCM) / prediction_c[1]
+            means[7] += (1 - beta_k_sum_grBCM) * prediction_c[0] / prediction_c[1]
+            means[7] = means[7] / inverse_variances[7]
+            variances[7] = 1 / inverse_variances[7]
 
+            if self.normalize_Y:
+                means = means * self.Y_std + self.Y_mean
+                variances = variances * self.Y_std**2
+                
             return means, variances
 
         else:
@@ -452,6 +500,16 @@ class FactorizedGaussianProcess(Model):
             
 
         return mean, variance
+
+
+    def score(self, X_test, Y_test, aggregation_type="all"):
+        means, _ = self.predict(X_test, aggregation_type=aggregation_type)
+        if aggregation_type == "all":
+            return (1 - (((Y_test - means)**2).sum(axis=1) / ((Y_test - Y_test.mean())**2).sum())).squeeze()
+        else:
+            return (1 - (((Y_test - means)**2).sum() / ((Y_test - Y_test.mean())**2).sum())).squeeze()
+
+
         
 
 
@@ -533,6 +591,75 @@ def plot_countries(model, path, countries=("Germany",), randomize_policies=False
         plt.savefig(path + f"fgp_countries_{aggregation_type}.png")
 
     plt.close('all')
+
+
+def plot_countries_all_aggegration_types(model, path, countries=("Germany",), dataset=""):
+    df = pd.read_csv(dataset + "policies_onehot_full_absolute_R.csv")
+
+    nrows = int(round(np.sqrt(len(countries))))
+    ncols = len(countries) // nrows
+
+    predictions = []
+    actual = []
+    dates_indices_list = []
+    for country in countries:
+        df_c = df[df["country"] == country].copy()
+        df_c.pop("country")
+
+        dates = df_c.pop("dates").to_numpy()
+        dates_list = [dt.datetime.strptime(d,'%Y-%m-%d').date() for d in dates]
+        first_day_indices = [i for (i, d) in enumerate(dates_list) if d.day == 1][::2]
+        dates_list = [dates_list[i].strftime("%m/%Y") for i in first_day_indices]
+        dates_list = [d[:3]+d[-2:] for d in dates_list]
+        dates_indices_list.append((first_day_indices, dates_list))
+        
+        y = df_c.pop("reproduction_rate").to_numpy()[..., np.newaxis]
+        actual.append(y)
+        x = df_c.to_numpy()
+        x = x[:, 1:]
+
+        prediction = model.predict(x, aggregation_type="all")
+        np.save(path + f"country_{country}_means.npy", prediction[0])
+        np.save(path + f"country_{country}_vars.npy", prediction[1])
+
+        predictions.append(prediction)
+
+
+    for i, aggregation_type in enumerate(["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM", "grBCM"]):
+        plt.figure(figsize=(6 * ncols + 1, 6 * nrows))
+        for c, country in enumerate(countries):
+            ax = plt.subplot(nrows, ncols, c + 1)
+
+            y = actual[c]
+
+            mean, var = predictions[c]
+            mean = mean[i].squeeze()
+            var = var[i].squeeze()
+            std = np.sqrt(var)
+
+            ax.plot(np.arange(len(y)), y, label="Actual")
+
+            ax.plot(np.arange(len(y)), mean, label="Predicted")
+            ax.fill_between(np.arange(len(y)), mean - 1.96*std, mean + 1.96*std, color="C0", alpha=0.2, label="95% confidence")
+
+            ax.set_ylim((0, 3.75))
+
+            ax.set_xticks(dates_indices_list[c][0])
+            ax.set_xticklabels(dates_indices_list[c][1], rotation=45)
+
+            ax.set_ylabel("R")
+            ax.set_title(country)
+            ax.legend()
+
+        plt.suptitle(aggregation_type, fontsize=14)
+        plt.savefig(path + f"fgp_countries_{aggregation_type}.png")
+        plt.cla()
+        plt.clf()
+        plt.close('all')
+
+
+
+    
 
 
 def plot_single_policy():
@@ -660,13 +787,26 @@ def plot_policies_vaccination(model, vaccination, path, aggregation_type="rBCM")
     #plt.show()
 
 
-def knockout_evaluation(model, path, dataset=""):
+def knockout_evaluation(model, path, dataset="", vaccination_rate="any"):
     df = pd.read_csv(dataset + "policies_onehot_full_absolute_R.csv")
     df.pop("country")
+    df.pop("dates")
     y = df.pop("reproduction_rate").to_numpy()[..., np.newaxis]
     x = df.to_numpy()
     # drop index
     x = x[:, 1:]
+
+    if vaccination_rate == "zero":
+        vaccination_rate_mask = df["vaccination_rate"].to_numpy()
+        vaccination_rate_mask = vaccination_rate_mask == 0
+        x = x[vaccination_rate_mask,:]
+        y = y[vaccination_rate_mask,:]
+    elif vaccination_rate == "nonzero":
+        vaccination_rate_mask = df["vaccination_rate"].to_numpy()
+        vaccination_rate_mask = vaccination_rate_mask > 0
+        x = x[vaccination_rate_mask,:]
+        y = y[vaccination_rate_mask,:]
+
 
     n_policies = 46
     
@@ -759,70 +899,53 @@ def knockout_evaluation(model, path, dataset=""):
         features[:, policy_index] = 0
         knockout_predictions = model.predict(features, aggregation_type="all")
 
-        diff = base_predictions[0].squeeze() - knockout_predictions[0].squeeze()
-        diff = diff[~np.isnan(diff).any(axis=1)]
-
-        np.save(path + f"knockout/policy_{policy_index+1}.npy", diff)
-
-        means[:, policy_index] = np.mean(diff, axis=1)
-        stds[:, policy_index] = np.std(diff, axis=1)
-        ci[:, policy_index] = stats.sem(diff, axis=1) * stats.t.ppf((1 + confidence) / 2., len(diff)-1)
-
-        print(f"{yticks[policy_index]}\t{means[:, policy_index]}\t{stds[:, policy_index]}\t{ci[:, policy_index]}")
+        diff_means = base_predictions[0].squeeze() - knockout_predictions[0].squeeze()
+        diff_variances = base_predictions[1].squeeze() + knockout_predictions[1].squeeze()
 
 
-    np.save(path + f"knockout/means.npy", means)
-    np.save(path + f"knockout/stds.npy", stds)
-    np.save(path + f"knockout/CI.npy", ci)
+        print(diff_means.shape)
+        mask = ~(np.isnan(diff_means).any(axis=1) | np.isnan(diff_variances).any(axis=1))
+        diff_means = diff_means[mask]
+        diff_variances = diff_variances[mask]
+
+        means[:, policy_index] = np.mean(diff_means, axis=1)
+
+        variance = np.mean(diff_means**2 + diff_variances, axis=1) - np.mean(diff_means, axis=1)**2
+        sem = np.sqrt(variance) / np.sqrt(len(features))
+        ci[:, policy_index] = sem * stats.t.ppf((1 + confidence) / 2., len(features)-1)
+
+        print(f"{yticks[policy_index]}\t{means[:, policy_index]}\t{ci[:, policy_index]}")
+
+
+        # diff = base_predictions[0].squeeze() - knockout_predictions[0].squeeze()
+        # diff = diff[~np.isnan(diff).any(axis=1)]
+
+        # np.save(path + f"knockout/policy_{policy_index+1}.npy", diff)
+
+        # means[:, policy_index] = np.mean(diff, axis=1)
+        # stds[:, policy_index] = np.std(diff, axis=1)
+        # ci[:, policy_index] = stats.sem(diff, axis=1) * stats.t.ppf((1 + confidence) / 2., len(diff)-1)
+
+        # print(f"{yticks[policy_index]}\t{means[:, policy_index]}\t{stds[:, policy_index]}\t{ci[:, policy_index]}")
+
+
+    np.save(path + f"knockout/vaccination_{vaccination_rate}_means.npy", means)
+    np.save(path + f"knockout/vaccination_{vaccination_rate}_CI.npy", ci)
     print(means.shape, means)
-    print(stds.shape, stds)
     print(ci.shape, ci)
 
 
     for i, aggregation_type in enumerate(["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM", "grBCM"]):
-        plt.figure(figsize=(12, 12))
-        plt.errorbar(means[i], -np.arange(n_policies), xerr=stds[i], fmt='.')
-        plt.axvline(x=0.0, color="b")
-        plt.yticks(-np.arange(n_policies), yticks, rotation='horizontal')
-        for j, tick in enumerate(plt.gca().get_yticklabels()):
-            tick.set_color("green" if means[i,j] < 0 else "red")
-        plt.title(aggregation_type)
-        plt.savefig(path + f"fgp_knockout_{aggregation_type}.png")
-        plt.clf()
-        plt.close()
-
-        sorted_indices = np.argsort(means[i])
-        plt.figure(figsize=(12, 12))
-        plt.errorbar(means[i][sorted_indices], -np.arange(n_policies), xerr=stds[i][sorted_indices], fmt='.')
-        plt.axvline(x=0.0, color="b")
-        plt.yticks(-np.arange(n_policies), yticks[sorted_indices], rotation='horizontal')
-        for j, tick in enumerate(plt.gca().get_yticklabels()):
-            tick.set_color("green" if means[i][sorted_indices][j] < 0 else "red")
-        plt.title(aggregation_type)
-        plt.savefig(path + f"fgp_knockout_sorted_{aggregation_type}.png")
-        plt.clf()
-        plt.close()
-        
-        plt.figure(figsize=(12, 12))
-        plt.errorbar(means[i], -np.arange(n_policies), xerr=ci[i], fmt='.')
-        plt.axvline(x=0.0, color="b")
-        plt.yticks(-np.arange(n_policies), yticks, rotation='horizontal')
-        for j, tick in enumerate(plt.gca().get_yticklabels()):
-            tick.set_color("green" if means[i,j] < 0 else "red")
-        plt.title(aggregation_type)
-        plt.savefig(path + f"fgp_knockout_ci_{aggregation_type}.png")
-        plt.clf()
-        plt.close()
-
         sorted_indices = np.argsort(means[i])
         plt.figure(figsize=(12, 12))
         plt.errorbar(means[i][sorted_indices], -np.arange(n_policies), xerr=ci[i][sorted_indices], fmt='.')
-        plt.axvline(x=0.0, color="b")
+        plt.axvline(x=0.0, color="black")
         plt.yticks(-np.arange(n_policies), yticks[sorted_indices], rotation='horizontal')
         for j, tick in enumerate(plt.gca().get_yticklabels()):
             tick.set_color("green" if means[i][sorted_indices][j] < 0 else "red")
-        plt.title(aggregation_type)
-        plt.savefig(path + f"fgp_knockout_sorted_ci_{aggregation_type}.png")
+        plt.xlabel(r"$\Delta R_t$")
+        plt.title("Distributed Gaussian Process - " + aggregation_type)
+        plt.savefig(path + f"fgp_knockout_vaccination_{vaccination_rate}_{aggregation_type}.png")
         plt.clf()
         plt.close()
 
@@ -917,17 +1040,17 @@ def knockout_evaluation_same_category(model, path, dataset=""):
         cis.append(np.zeros(shape=(8, 1 + len(index_differences))))
 
         mask = (x[:, policy_index] == 1)
-        # print(f"\npolicy_index: {policy_index+1}/{n_policies} -> {np.sum(mask):7d} instances\t({yticks[policy_index]})")
+        print(f"\npolicy_index: {policy_index+1}/{n_policies} -> {np.sum(mask):7d} instances\t({yticks[policy_index]})")
         
         if np.sum(mask) == 0:
             continue
             
 
         features = x[mask,:]
-        print("\nbase")
+        # print("\nbase")
         base_predictions = model.predict(features, aggregation_type="all")
 
-        print("\nknockout")
+        # print("\nknockout")
         features[:, policy_index] = 0
         knockout_predictions = model.predict(features, aggregation_type="all")
 
@@ -937,11 +1060,12 @@ def knockout_evaluation_same_category(model, path, dataset=""):
         stds[-1][:, 0] = np.std(knockout_diff, axis=1)
         cis[-1][:, 0] = stats.sem(knockout_diff, axis=1) * stats.t.ppf((1 + confidence) / 2., len(knockout_diff)-1)
 
+        policies_same_category_predictions = []
         for i, active_index_diff in enumerate(index_differences):
             if active_index_diff == 0:
                 continue
 
-            print(f"\nchanged policy ({yticks[policy_index]} -> {yticks[policy_index+active_index_diff]})")
+            # print(f"\nchanged policy ({yticks[policy_index]} -> {yticks[policy_index+active_index_diff]})")
             # new policy from same category
             features[:, policy_index+active_index_diff] = 1
 
@@ -956,8 +1080,10 @@ def knockout_evaluation_same_category(model, path, dataset=""):
             # reset
             features[:, policy_index+active_index_diff] = 0
 
-        with np.printoptions(precision=4, suppress=True, linewidth=200):
+        with np.printoptions(precision=5, suppress=True, linewidth=200):
             print(means[-1])
+            print(stds[-1])
+            print(cis[-1])
 
 
     
@@ -983,6 +1109,53 @@ def knockout_evaluation_same_category(model, path, dataset=""):
         plt.close()
     
 
+def permutation_importance(model, X, Y, path):
+    K = 10
+    n_policies = 46
+
+    baseline_score = model.score(X, Y)
+
+    importances = np.zeros(shape=(8, n_policies, K))
+
+    for policy_index in range(n_policies):
+        print(f"policy_index {policy_index}")
+        shuffled_scores = np.zeros(shape=(8, K))
+        for k in range(K):
+            print(f"k = {k}")
+            X_shuffled = X.copy()
+            indices = np.arange(X_shuffled.shape[0])
+            np.random.shuffle(indices)
+            X_shuffled[:, policy_index] = X_shuffled[:, policy_index][indices]
+            
+            shuffled_scores[:, k] = model.score(X_shuffled, Y)
+
+        importances[:, policy_index, :] = (baseline_score - shuffled_scores.T).T
+
+    with np.printoptions(suppress=True, linewidth=200):
+        print(baseline_score)
+        print(np.mean(importances, axis=2).T)
+        print(np.std(importances, axis=2).T)
+
+    np.save(path + "permutation_importances.npy", importances)
+
+    
+    if dataset == "":
+        yticks = np.array(["C1 1","C1 2","C1 3","C2 1","C2 2","C2 3","C3 1","C3 2","C4 1","C4 2","C4 3","C4 4","C5 1","C5 2","C6 1","C6 2","C6 3","C7 1","C7 2","C8 1","C8 2","C8 3","C8 4","E1 1","E1 2","E2 1","E2 2","H1 1","H1 2","H2 1","H2 2","H2 3","H3 1","H3 2","H6 1","H6 2","H6 3","H6 4","H7 1","H7 2","H7 3","H7 4","H7 5","H8 1","H8 2","H8 3",])
+    else:
+        yticks = np.array(["ActivateCaseNotification","ActivateOrEstablishEmergencyResponse","ActivelyCommunicateWithHealthcareProfessionals1","ActivelyCommunicateWithManagers1","AdaptProceduresForPatientManagement","AirportHealthCheck","AirportRestriction","BorderHealthCheck","BorderRestriction","ClosureOfEducationalInstitutions","CordonSanitaire","CrisisManagementPlans","EducateAndActivelyCommunicateWithThePublic1","EnhanceDetectionSystem","EnhanceLaboratoryTestingCapacity","EnvironmentalCleaningAndDisinfection","IncreaseAvailabilityOfPpe","IncreaseHealthcareWorkforce","IncreaseInMedicalSuppliesAndEquipment","IncreaseIsolationAndQuarantineFacilities","IncreasePatientCapacity","IndividualMovementRestrictions","IsolationOfCases","MassGatheringCancellation","MeasuresForPublicTransport","MeasuresForSpecialPopulations","MeasuresToEnsureSecurityOfSupply","NationalLockdown","PersonalProtectiveMeasures","PoliceAndArmyInterventions","PortAndShipRestriction","ProvideInternationalHelp","PublicTransportRestriction","Quarantine","ReceiveInternationalHelp","RepurposeHospitals","Research","RestrictedTesting","ReturnOperationOfNationals","SmallGatheringCancellation","SpecialMeasuresForCertainEstablishments","Surveillance","TheGovernmentProvideAssistanceToVulnerablePopulations","TracingAndTracking","TravelAlertAndWarning","WorkSafetyProtocols",])
+    
+    sorted_indices = np.argsort(np.mean(importances, axis=2))
+
+    for i, aggregation_type in enumerate(["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM", "grBCM"]):
+        fig, ax = plt.subplots(figsize=(12,12))
+        ax.boxplot(importances[i][sorted_indices,:].T, vert=False, labels=yticks[sorted_indices])
+        plt.savefig(path + f"permutation_importance_{aggregation_type}.png")
+        plt.clf()
+        plt.close()
+
+
+
+
 def latest_version(path):
     """
     Returns latest model version as integer
@@ -1001,40 +1174,41 @@ def latest_version(path):
 
 def main():
     dataset = ""
-    version = latest_version(pathlib.Path("./FactorizedGaussianProcesses/"))
+    version = 26
+    # version = latest_version(pathlib.Path("./FactorizedGaussianProcesses/"))
+
     # if version is None:
     #     version = 0
     # else:
     #     version += 1
     # print(version)
     # pathlib.Path(f"./FactorizedGaussianProcesses/version_{version}").mkdir()
+    # pathlib.Path(f"./FactorizedGaussianProcesses/version_{version}/knockout").mkdir()
 
 
-    # dm = ResponseDataModule()
-    # dm.prepare_data()
-    # dm.setup()
+    # df = pd.read_csv(dataset + "policies_onehot_full_absolute_R.csv")
+    # df.pop("country")
+    # df.pop("dates")
+    # responses = df.pop("reproduction_rate").to_numpy()[..., None]
+    # features = df.to_numpy()
+    # features = features[:, 1:]
 
-    # train_features, train_responses = dm.train_ds.dataset.tensors
-    # train_features = train_features.detach().numpy()[dm.train_ds.indices]
-    # train_responses = train_responses.detach().numpy()[dm.train_ds.indices]
-    
-    # val_features, val_responses = dm.val_ds.dataset.tensors
-    # val_features = val_features.detach().numpy()[dm.val_ds.indices]
-    # val_responses = val_responses.detach().numpy()[dm.val_ds.indices]
+    # indices = np.arange(len(features))
+    # train_indices, val_indices = train_test_split(indices, test_size=0.1)
 
+    # train_features = features[train_indices]
+    # train_responses = responses[train_indices]
+    # val_features = features[val_indices]
+    # val_responses = responses[val_indices]
 
-    # train_indices = np.array(dm.train_ds.indices)
-    # val_indices = np.array(dm.val_ds.indices)
     # np.save(f"./FactorizedGaussianProcesses/version_{version}/train_indices.npy", train_indices)
     # np.save(f"./FactorizedGaussianProcesses/version_{version}/val_indices.npy", val_indices)
 
-    # print(train_features.shape, train_responses.shape)
-    # print(val_features.shape, val_responses.shape)
 
     # # kernel = None
-    # kernel = GPy.kern.Matern32(input_dim=train_features.shape[1]) + GPy.kern.White(input_dim=train_features.shape[1])
+    # kernel = GPy.kern.RBF(input_dim=train_features.shape[1]) + GPy.kern.White(input_dim=train_features.shape[1])
 
-    # model = FactorizedGaussianProcess(train_features, train_responses, 15, normalize_X=False, normalize_Y=True, kernel=kernel)
+    # model = FactorizedGaussianProcess(train_features, train_responses, 32, normalize_X=False, normalize_Y=True, kernel=kernel, verbose=True)
     # print(model)
 
     # model.optimize()
@@ -1043,39 +1217,59 @@ def main():
 
     # with open(f"./FactorizedGaussianProcesses/version_{version}/factorizedGPr.dump" , "wb") as f:
     #     pickle.dump(model, f)
+
+    # print(model.score(val_features, val_responses))
+
+    # countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
+    # plot_countries_all_aggegration_types(model, path=f"./FactorizedGaussianProcesses/version_{version}/", countries=countries, dataset=dataset)
+
+    # exit()
+
     
 
-    print(version)
+
+    df = pd.read_csv(dataset + "policies_onehot_full_absolute_R.csv")
+    df.pop("country")
+    responses = df.pop("reproduction_rate").to_numpy()[..., None]
+    features = df.to_numpy()
+    features = features[:, 1:]
+
     train_indices = np.load(f"./FactorizedGaussianProcesses/version_{version}/train_indices.npy")
     val_indices = np.load(f"./FactorizedGaussianProcesses/version_{version}/val_indices.npy")
-
-    dm = ResponseDataModule()
-    dm.prepare_data()
-    dm.setup()
-    train_features, train_responses = dm.train_ds.dataset.tensors
-    train_features = train_features.detach().numpy()[train_indices]
-    train_responses = train_responses.detach().numpy()[train_indices]
-    val_features, val_responses = dm.val_ds.dataset.tensors
-    val_features = val_features.detach().numpy()[val_indices]
-    val_responses = val_responses.detach().numpy()[val_indices]
+    train_features = features[train_indices]
+    train_responses = responses[train_indices]
+    val_features = features[val_indices]
+    val_responses = responses[val_indices]
 
     with open(f"./FactorizedGaussianProcesses/version_{version}/factorizedGPr.dump", "rb") as f:
         model = pickle.load(f)
         
 
     # countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
+    # plot_countries_all_aggegration_types(model, path=f"./FactorizedGaussianProcesses/version_{version}/", countries=countries, dataset=dataset)
+
+    # permutation_importance(model, val_features, val_responses, f"./FactorizedGaussianProcesses/version_{version}/")
+
+    knockout_evaluation(model, path=f"./FactorizedGaussianProcesses/version_{version}/", dataset=dataset, vaccination_rate="any")
+    # knockout_evaluation(model, path=f"./FactorizedGaussianProcesses/version_{version}/", dataset=dataset, vaccination_rate="zero")
+    # knockout_evaluation(model, path=f"./FactorizedGaussianProcesses/version_{version}/", dataset=dataset, vaccination_rate="nonzero")
+
+
+    # knockout_evaluation_same_category(model, path=f"./FactorizedGaussianProcesses/version_{version}/", dataset=dataset)
+
+
     # for aggregation_type in ["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM", "grBCM"]:
     #     val_pred_mean, val_pred_var = model.predict(val_features, aggregation_type=aggregation_type)
     #     np.save(f"./FactorizedGaussianProcesses/version_{version}/val_set_prediction_{aggregation_type}.npy", np.hstack((val_pred_mean, val_pred_var, val_responses)))
-        
     #     #plot_countries(model, path=f"./FactorizedGaussianProcesses/version_{version}/", countries=countries, randomize_policies=True, aggregation_type=aggregation_type)
-
     #     plot_countries(model, path=f"./FactorizedGaussianProcesses/version_{version}/", countries=countries, randomize_policies=False, aggregation_type=aggregation_type)
-        
-    #     plot_policies_vaccination(model, 0, path=f"./FactorizedGaussianProcesses/version_{version}/", aggregation_type=aggregation_type)
+    #     # plot_policies_vaccination(model, 0, path=f"./FactorizedGaussianProcesses/version_{version}/", aggregation_type=aggregation_type)
+    # exit()
 
-    #knockout_evaluation(model, path=f"./FactorizedGaussianProcesses/version_{version}/", dataset=dataset)
-    knockout_evaluation_same_category(model, path=f"./FactorizedGaussianProcesses/version_{version}/", dataset=dataset)
+    
+
+    # knockout_evaluation(model, path=f"./FactorizedGaussianProcesses/version_{version}/", dataset=dataset)
+    # knockout_evaluation_same_category(model, path=f"./FactorizedGaussianProcesses/version_{version}/", dataset=dataset)
 
     # for aggregation_type in ["NPAE"]:
     #     plot_policies_vaccination(model, 0, path=f"./FactorizedGaussianProcesses/version_{version}/", aggregation_type=aggregation_type)
@@ -1130,32 +1324,193 @@ def test():
 
     plt.show()
 
+def compare_kernels():
+    dataset = ""
+    version = latest_version(pathlib.Path("./FactorizedGaussianProcesses/"))
+
+    if version is None:
+        version = 0
+    else:
+        version += 1
+    print(version)
+    pathlib.Path(f"./FactorizedGaussianProcesses/version_{version}").mkdir()
+
+
+    input_dim = 48
+
+    kernel_names = [
+        # "RatQuad",
+        "Matern12",
+        "Matern32",
+        "Matern52",
+        "RBF",
+    ]
+
+    aggregation_types = ["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM", "grBCM"]
+
+    num_times = 5
+    mses = np.zeros(shape=(num_times, len(kernel_names), len(aggregation_types)))
+    chi_squares = np.zeros(shape=(num_times, len(kernel_names), len(aggregation_types)))
+    scores = np.zeros(shape=(num_times, len(kernel_names), len(aggregation_types)))
+    
+
+    for n in range(num_times):
+        kernels = [
+            # GPy.kern.RatQuad(input_dim=input_dim, power=500) + GPy.kern.White(input_dim=input_dim),
+            GPy.kern.OU(input_dim=input_dim) + GPy.kern.White(input_dim=input_dim),
+            GPy.kern.Matern32(input_dim=input_dim) + GPy.kern.White(input_dim=input_dim),
+            GPy.kern.Matern52(input_dim=input_dim) + GPy.kern.White(input_dim=input_dim),
+            GPy.kern.RBF(input_dim=input_dim) + GPy.kern.White(input_dim=input_dim),
+        ]
+        
+        dm = ResponseDataModule(dataset=dataset)
+        dm.prepare_data()
+        dm.setup()
+
+        train_indices = np.array(dm.train_ds.indices)
+        val_indices = np.array(dm.val_ds.indices)
+        np.save(f"./FactorizedGaussianProcesses/version_{version}/{n}_train_indices.npy", train_indices)
+        np.save(f"./FactorizedGaussianProcesses/version_{version}/{n}_val_indices.npy", val_indices)
+        # train_indices = np.load(f"./FactorizedGaussianProcesses/version_{version}/{n}_train_indices.npy")
+        # val_indices = np.load(f"./FactorizedGaussianProcesses/version_{version}/{n}_val_indices.npy")
+
+
+        train_features, train_responses = dm.train_ds.dataset.tensors
+        train_features = train_features.detach().numpy()[train_indices]
+        train_responses = train_responses.detach().numpy()[train_indices]
+        
+        val_features, val_responses = dm.val_ds.dataset.tensors
+        val_features = val_features.detach().numpy()[val_indices]
+        val_responses = val_responses.detach().numpy()[val_indices]
+
+
+        for k_index, (kernel_name, kernel) in enumerate(zip(kernel_names, kernels)):
+            model = FactorizedGaussianProcess(train_features, train_responses, 32, normalize_X=True, normalize_Y=True, kernel=kernel, verbose=False)
+            print(model)
+            print("optimizing...")
+
+            model.optimize()
+            print(model)
+        
+            countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
+            plot_countries_all_aggegration_types(model, path=f"./FactorizedGaussianProcesses/version_{version}/{n}_{kernel_name}_", countries=countries, dataset=dataset)
+            
+            validation_means, validation_vars = model.predict(val_features, aggregation_type="all")    # (8, x.shape[0], 1)
+            for aggregation_index, aggregation_type in enumerate(aggregation_types):
+                val_pred_mean = validation_means[aggregation_index]
+                val_pred_var = validation_vars[aggregation_index]
+                np.save(f"./FactorizedGaussianProcesses/version_{version}/{n}_val_set_prediction_{aggregation_type}_{kernel_name}.npy", np.hstack((val_pred_mean, val_pred_var, val_responses)))
+
+                mse = ((val_pred_mean - val_responses)**2).mean()
+                score = 1 - (((val_responses - val_pred_mean) ** 2).sum() / ((val_responses - val_responses.mean()) ** 2).sum())
+
+                mask = (val_pred_var == 0) & (val_pred_mean == val_responses)
+                chi_square = ((val_pred_mean - val_responses)**2 / val_pred_var)
+                chi_square[mask] = 0
+                chi_square = chi_square.sum()
+
+                mses[n, k_index, aggregation_index] = mse
+                chi_squares[n, k_index, aggregation_index] = chi_square
+                scores[n, k_index, aggregation_index] = score
+
+                print(f"{n}: {kernel_name}\t{aggregation_type}\t{mse}\t{chi_square}\t{score}")
+
+                
+                np.save(f"./FactorizedGaussianProcesses/version_{version}/mses.npy", mses)
+                np.save(f"./FactorizedGaussianProcesses/version_{version}/chi_squares.npy", chi_squares)
+                np.save(f"./FactorizedGaussianProcesses/version_{version}/scores.npy", scores)
+
+
+    print("\n\nRational Quadratic Kernel:")
+    kernel = GPy.kern.RatQuad(input_dim=input_dim) + GPy.kern.White(input_dim=input_dim)
+    model = FactorizedGaussianProcess(train_features, train_responses, 32, normalize_X=True, normalize_Y=True, kernel=kernel, verbose=False)
+    print(model)
+    print("optimizing...")
+
+    model.optimize()
+    print(model)
+    
+    validation_means, validation_vars = model.predict(val_features, aggregation_type="all")    # (8, x.shape[0], 1)
+    for aggregation_index, aggregation_type in enumerate(aggregation_types):
+        val_pred_mean = validation_means[aggregation_index]
+        val_pred_var = validation_vars[aggregation_index]
+
+        mse = ((val_pred_mean - val_responses)**2).mean()
+        score = 1 - (((val_responses - val_pred_mean) ** 2).sum() / ((val_responses - val_responses.mean()) ** 2).sum())
+
+        mask = (val_pred_var == 0) & (val_pred_mean == val_responses)
+        chi_square = ((val_pred_mean - val_responses)**2 / val_pred_var)
+        chi_square[mask] = 0
+        chi_square = chi_square.sum()
+
+        mses[n, k_index, aggregation_index] = mse
+        chi_squares[n, k_index, aggregation_index] = chi_square
+        scores[n, k_index, aggregation_index] = score
+
+        print(f"{n}: {kernel_name}\t{aggregation_type}\t{mse}\t{chi_square}\t{score}")
+    
+def test_locally_periodic_kernel():
+    dataset=""
+    version = latest_version(pathlib.Path("./FactorizedGaussianProcesses/"))
+
+    if version is None:
+        version = 0
+    else:
+        version += 1
+    print(version)
+    pathlib.Path(f"./FactorizedGaussianProcesses/version_{version}").mkdir()
+
+
+    input_dim = 48
+
+    for n in range(10):
+        kernel = GPy.kern.RBF(input_dim=input_dim)*GPy.kern.StdPeriodic(input_dim=input_dim) + GPy.kern.White(input_dim=input_dim)
+        
+        dm = ResponseDataModule(dataset=dataset)
+        dm.prepare_data()
+        dm.setup()
+
+        train_indices = np.array(dm.train_ds.indices)
+        val_indices = np.array(dm.val_ds.indices)
+
+        train_features, train_responses = dm.train_ds.dataset.tensors
+        train_features = train_features.detach().numpy()[train_indices]
+        train_responses = train_responses.detach().numpy()[train_indices]
+        
+        val_features, val_responses = dm.val_ds.dataset.tensors
+        val_features = val_features.detach().numpy()[val_indices]
+        val_responses = val_responses.detach().numpy()[val_indices]
+
+
+        model = FactorizedGaussianProcess(train_features, train_responses, 64, normalize_X=False, normalize_Y=True, kernel=kernel, verbose=True)
+        print(model)
+        print("optimizing...")
+
+        model.optimize()
+        print(model)
+    
+        countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
+        plot_countries_all_aggegration_types(model, path=f"./FactorizedGaussianProcesses/version_{version}/{n}_", countries=countries, dataset=dataset)
+        
+        validation_means, validation_vars = model.predict(val_features, aggregation_type="all")    # (8, x.shape[0], 1)
+        for aggregation_index, aggregation_type in enumerate(aggregation_types):
+            val_pred_mean = validation_means[aggregation_index]
+            val_pred_var = validation_vars[aggregation_index]
+
+            mse = ((val_pred_mean - val_responses)**2).mean()
+            score = 1 - (((val_responses - val_pred_mean) ** 2).sum() / ((val_responses - val_responses.mean()) ** 2).sum())
+
+            mask = (val_pred_var == 0) & (val_pred_mean == val_responses)
+            chi_square = ((val_pred_mean - val_responses)**2 / val_pred_var)
+            chi_square[mask] = 0
+            chi_square = chi_square.sum()
+
+            print(f"{n}\t{aggregation_type}\t{mse}\t{chi_square}\t{score}")
+    
 
 
 if __name__ == "__main__":
-    # version = 5
-    # mses = np.zeros(7)
-    # chi_squares = np.zeros(7)
-    # for i, aggregation_type in enumerate(["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM"]):
-    #     val_data = np.load(f"./FactorizedGaussianProcesses/version_{version}/val_set_prediction_{aggregation_type}.npy")
-    #     val_pred_mean = val_data[:,0]
-    #     val_pred_var = val_data[:,1]
-    #     val_responses = val_data[:,2]
-
-    #     mse = ((val_pred_mean - val_responses)**2).mean()
-
-    #     chi_square = ((val_pred_mean - val_responses)**2 / val_pred_var).sum()
-
-    #     print(aggregation_type)
-    #     print(mse)
-    #     print(chi_square)
-
-    #     mses[i] = mse
-    #     chi_squares[i] = chi_square
-        
-    # print(["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM"][np.argmin(mses)])
-    # print(["mean", "SPV", "PoE", "GPoE", "GPoE_constant_beta", "BCM", "rBCM"][np.argmin(chi_squares)])
-        
-
     main()
     # test()
+    # compare_kernels()
+    # test_locally_periodic_kernel()
