@@ -7,10 +7,12 @@ import pandas as pd
 
 
 class ResponseDataModule(pl.LightningDataModule):
-    def __init__(self, batch_size=32):
+    def __init__(self, batch_size=32, dataset=""):
         self.batch_size = batch_size
         # save the dataframe, in case we need it
         self.df = None
+
+        self.dataset = dataset
 
         # full dataset
         self.ds = None
@@ -22,10 +24,11 @@ class ResponseDataModule(pl.LightningDataModule):
 
     def prepare_data(self):
         # load from csv
-        self.df = pd.read_csv("policies_onehot_full_absolute_R.csv")
+        self.df = pd.read_csv(self.dataset + "policies_onehot_full_absolute_R.csv")
 
         df = self.df.copy()
         df.pop("country")
+        df.pop("dates")
 
         y = df.pop("reproduction_rate").to_numpy()
         x = df.to_numpy()

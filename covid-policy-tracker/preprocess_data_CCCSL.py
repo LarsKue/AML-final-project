@@ -66,6 +66,7 @@ def create_policies_oh(features, responses, country_name, single_policy):
     policies_oh_single["reproduction_rate"] = responses_single["reproduction_rate"]
 
     policies_oh_single["country"] = country_name
+    policies_oh_single["dates"] = dates
 
     policies_oh_single = policies_oh_single.dropna()
 

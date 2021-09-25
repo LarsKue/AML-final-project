@@ -122,6 +122,7 @@ def create_policies_oh(responses, testing, country_name, single_policy):
     policies_oh_single["reproduction_rate"] = testing_single["reproduction_rate"]
 
     policies_oh_single["country"] = country_name
+    policies_oh_single["dates"] = dates
 
     # TODO: remove r value?
     # missing = list(np.full(7, np.nan))
