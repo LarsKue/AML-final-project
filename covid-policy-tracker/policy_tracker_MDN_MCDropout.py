@@ -364,7 +364,10 @@ def plot_country_heatmap(model, df, ylims, country="Germany", randomize_policies
         random_x = torch.randint(0, 1, size=(x.shape[0], model.n_policies)).to(torch.float64)
         x[:, :model.n_policies] = random_x
 
-    means, variances, weights = model(x, mc_dropout_samples=10, max_component_only=False)
+    means, variances, weights = model(x, mc_dropout_samples=1, max_component_only=False)
+    print(means)
+    print(variances)
+    print(weights)
 
     num_ys = 1000
     
@@ -723,33 +726,33 @@ def permutation_importance(model, X_test, Y_test, path, dataset=""):
 def main():
     dm = ResponseDataModule()
     
-    # pt = PolicyTrackerMDN()
+    pt = PolicyTrackerMDN()
 
-    # callbacks = [
-    #     # save model with lowest validation loss
-    #     pl.callbacks.ModelCheckpoint(monitor="val_loss"),
-    #     # stop when validation loss stops decreasing
-    #     pl.callbacks.EarlyStopping(monitor="val_loss", patience=10),
-    # ]
+    callbacks = [
+        # save model with lowest validation loss
+        pl.callbacks.ModelCheckpoint(monitor="val_loss"),
+        # stop when validation loss stops decreasing
+        pl.callbacks.EarlyStopping(monitor="val_loss", patience=10),
+    ]
 
-    # logger = TensorBoardLogger(save_dir="lightning_logs", name="", default_hp_metric=False, log_graph=True)
+    logger = TensorBoardLogger(save_dir="lightning_logs", name="", default_hp_metric=False, log_graph=True)
 
-    # trainer = pl.Trainer(
-    #     max_epochs=200,
-    #     callbacks=callbacks,
-    #     logger=logger,
-    #     gpus=1,
-    # )
+    trainer = pl.Trainer(
+        max_epochs=200,
+        callbacks=callbacks,
+        logger=logger,
+        gpus=1,
+    )
 
-    # process = tensorboard()
+    process = tensorboard()
 
-    # trainer.fit(pt, datamodule=dm)
-    # trainer.save_checkpoint("./PolicyTrackerMDN/MC_Dropout/model_MDN_dropout.ckpt")
+    trainer.fit(pt, datamodule=dm)
+    trainer.save_checkpoint("./PolicyTrackerMDN/MC_Dropout/model_MDN_dropout.ckpt")
 
-    # train_indices = np.array(dm.train_ds.indices)
-    # val_indices = np.array(dm.val_ds.indices)
-    # np.save("./PolicyTrackerMDN/MC_Dropout/train_indices.npy", train_indices)
-    # np.save("./PolicyTrackerMDN/MC_Dropout/val_indices.npy", val_indices)
+    train_indices = np.array(dm.train_ds.indices)
+    val_indices = np.array(dm.val_ds.indices)
+    np.save("./PolicyTrackerMDN/MC_Dropout/train_indices.npy", train_indices)
+    np.save("./PolicyTrackerMDN/MC_Dropout/val_indices.npy", val_indices)
 
 
     checkpoint = "./PolicyTrackerMDN/MC_Dropout/model_MDN_dropout.ckpt"#latest_checkpoint()
@@ -772,16 +775,16 @@ def main():
     knockout_evaluation(pt, "./PolicyTrackerMDN/MC_Dropout/", vaccination_rate="any")
     # knockout_evaluation(pt, "./PolicyTrackerMDN/MC_Dropout/", vaccination_rate="zero")
     # knockout_evaluation(pt, "./PolicyTrackerMDN/MC_Dropout/", vaccination_rate="nonzero")
-    # permutation_importance(pt, val_features, val_responses, "./PolicyTrackerMDN/MC_Dropout/")
+    permutation_importance(pt, val_features, val_responses, "./PolicyTrackerMDN/MC_Dropout/")
     
 
-    # countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
+    countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
 
-    # # ylims = plot_countries(pt, countries=countries, randomize_policies=True)
-    # # ylims = plot_countries(pt, "./PolicyTrackerMDN/MC_Dropout/", countries=countries, randomize_policies=False)
+    # ylims = plot_countries(pt, countries=countries, randomize_policies=True)
+    ylims = plot_countries(pt, "./PolicyTrackerMDN/MC_Dropout/", countries=countries, randomize_policies=False)
 
     # # plot_countries_heatmap(pt, ylims=ylims, countries=countries, randomize_policies=True)
-    # plot_countries_heatmap(pt, [0,3.75], "./PolicyTrackerMDN/MC_Dropout/", countries=countries, randomize_policies=False)
+    plot_countries_heatmap(pt, [0,3.75], "./PolicyTrackerMDN/MC_Dropout/", countries=countries, randomize_policies=False)
 
     # plot_policies_vaccination(model=pt, vaccination=0)
     # plot_policies_vaccination(model=pt, vaccination=1)

@@ -609,6 +609,7 @@ def main():
     pt.to('cuda')
     pt.eval()
 
+    print(pt.R0_model.weight)
 
     dm = ResponseDataModule()
     dm.prepare_data()
@@ -624,14 +625,14 @@ def main():
     knockout_evaluation(pt, "./ProductAnsatz/", vaccination_rate="any")
     # knockout_evaluation(pt, "./ProductAnsatz/", vaccination_rate="zero")
     # knockout_evaluation(pt, "./ProductAnsatz/", vaccination_rate="nonzero")
-    # # permutation_importance(pt, val_features, val_responses, "./ProductAnsatz/")
+    permutation_importance(pt, val_features, val_responses, "./ProductAnsatz/")
 
     # # knockout_evaluation_same_category(pt, dataset=dataset)
 
-    # countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
+    countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
 
     # plot_countries(pt, countries, randomize_policies=True)
-    # plot_countries(pt, "./ProductAnsatz/", countries, randomize_policies=False)
+    plot_countries(pt, "./ProductAnsatz/", countries, randomize_policies=False)
 
     # plot_single_policy()
     # plot_policies_vaccination(0)

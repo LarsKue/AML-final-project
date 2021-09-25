@@ -371,6 +371,7 @@ class FactorizedGaussianProcess(Model):
                 variance[i] = prior_variance[i] - k_M_x.T.dot(K_M_x_inv.dot(k_M_x))
             
         elif aggregation_type == "all":
+            # all = (mean, SPV, PoE, GPoE, GPoE_constant_beta, BCM, rBCM, grBCM)
             prior_variance = self.gpr.kern.Kdiag(X_test).reshape(-1,1) + self.gpr.likelihood.variance
             
             num_aggregation_types = 8
@@ -1109,7 +1110,7 @@ def knockout_evaluation_same_category(model, path, dataset=""):
         plt.close()
     
 
-def permutation_importance(model, X, Y, path):
+def permutation_importance(model, X, Y, path, dataset=""):
     K = 10
     n_policies = 46
 
@@ -1174,58 +1175,50 @@ def latest_version(path):
 
 def main():
     dataset = ""
-    version = 26
-    # version = latest_version(pathlib.Path("./FactorizedGaussianProcesses/"))
+    version = latest_version(pathlib.Path("./FactorizedGaussianProcesses/"))
 
-    # if version is None:
-    #     version = 0
-    # else:
-    #     version += 1
-    # print(version)
-    # pathlib.Path(f"./FactorizedGaussianProcesses/version_{version}").mkdir()
-    # pathlib.Path(f"./FactorizedGaussianProcesses/version_{version}/knockout").mkdir()
-
-
-    # df = pd.read_csv(dataset + "policies_onehot_full_absolute_R.csv")
-    # df.pop("country")
-    # df.pop("dates")
-    # responses = df.pop("reproduction_rate").to_numpy()[..., None]
-    # features = df.to_numpy()
-    # features = features[:, 1:]
-
-    # indices = np.arange(len(features))
-    # train_indices, val_indices = train_test_split(indices, test_size=0.1)
-
-    # train_features = features[train_indices]
-    # train_responses = responses[train_indices]
-    # val_features = features[val_indices]
-    # val_responses = responses[val_indices]
-
-    # np.save(f"./FactorizedGaussianProcesses/version_{version}/train_indices.npy", train_indices)
-    # np.save(f"./FactorizedGaussianProcesses/version_{version}/val_indices.npy", val_indices)
+    if version is None:
+        version = 0
+    else:
+        version += 1
+    print(version)
+    pathlib.Path(f"./FactorizedGaussianProcesses/version_{version}").mkdir()
+    pathlib.Path(f"./FactorizedGaussianProcesses/version_{version}/knockout").mkdir()
 
 
-    # # kernel = None
-    # kernel = GPy.kern.RBF(input_dim=train_features.shape[1]) + GPy.kern.White(input_dim=train_features.shape[1])
+    df = pd.read_csv(dataset + "policies_onehot_full_absolute_R.csv")
+    df.pop("country")
+    df.pop("dates")
+    responses = df.pop("reproduction_rate").to_numpy()[..., None]
+    features = df.to_numpy()
+    features = features[:, 1:]
 
-    # model = FactorizedGaussianProcess(train_features, train_responses, 32, normalize_X=False, normalize_Y=True, kernel=kernel, verbose=True)
-    # print(model)
+    indices = np.arange(len(features))
+    train_indices, val_indices = train_test_split(indices, test_size=0.1)
 
-    # model.optimize()
-    # print(model)
+    train_features = features[train_indices]
+    train_responses = responses[train_indices]
+    val_features = features[val_indices]
+    val_responses = responses[val_indices]
+
+    np.save(f"./FactorizedGaussianProcesses/version_{version}/train_indices.npy", train_indices)
+    np.save(f"./FactorizedGaussianProcesses/version_{version}/val_indices.npy", val_indices)
+
+
+    # kernel = None
+    kernel = GPy.kern.RBF(input_dim=train_features.shape[1]) + GPy.kern.White(input_dim=train_features.shape[1])
+
+    model = FactorizedGaussianProcess(train_features, train_responses, 32, normalize_X=False, normalize_Y=True, kernel=kernel, verbose=True)
+    print(model)
+
+    model.optimize()
+    print(model)
     
 
-    # with open(f"./FactorizedGaussianProcesses/version_{version}/factorizedGPr.dump" , "wb") as f:
-    #     pickle.dump(model, f)
+    with open(f"./FactorizedGaussianProcesses/version_{version}/factorizedGPr.dump" , "wb") as f:
+        pickle.dump(model, f)
 
-    # print(model.score(val_features, val_responses))
-
-    # countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
-    # plot_countries_all_aggegration_types(model, path=f"./FactorizedGaussianProcesses/version_{version}/", countries=countries, dataset=dataset)
-
-    # exit()
-
-    
+    print(model.score(val_features, val_responses))
 
 
     df = pd.read_csv(dataset + "policies_onehot_full_absolute_R.csv")
@@ -1245,10 +1238,10 @@ def main():
         model = pickle.load(f)
         
 
-    # countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
-    # plot_countries_all_aggegration_types(model, path=f"./FactorizedGaussianProcesses/version_{version}/", countries=countries, dataset=dataset)
+    countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
+    plot_countries_all_aggegration_types(model, path=f"./FactorizedGaussianProcesses/version_{version}/", countries=countries, dataset=dataset)
 
-    # permutation_importance(model, val_features, val_responses, f"./FactorizedGaussianProcesses/version_{version}/")
+    permutation_importance(model, val_features, val_responses, f"./FactorizedGaussianProcesses/version_{version}/")
 
     knockout_evaluation(model, path=f"./FactorizedGaussianProcesses/version_{version}/", dataset=dataset, vaccination_rate="any")
     # knockout_evaluation(model, path=f"./FactorizedGaussianProcesses/version_{version}/", dataset=dataset, vaccination_rate="zero")
@@ -1449,68 +1442,8 @@ def compare_kernels():
 
         print(f"{n}: {kernel_name}\t{aggregation_type}\t{mse}\t{chi_square}\t{score}")
     
-def test_locally_periodic_kernel():
-    dataset=""
-    version = latest_version(pathlib.Path("./FactorizedGaussianProcesses/"))
-
-    if version is None:
-        version = 0
-    else:
-        version += 1
-    print(version)
-    pathlib.Path(f"./FactorizedGaussianProcesses/version_{version}").mkdir()
-
-
-    input_dim = 48
-
-    for n in range(10):
-        kernel = GPy.kern.RBF(input_dim=input_dim)*GPy.kern.StdPeriodic(input_dim=input_dim) + GPy.kern.White(input_dim=input_dim)
-        
-        dm = ResponseDataModule(dataset=dataset)
-        dm.prepare_data()
-        dm.setup()
-
-        train_indices = np.array(dm.train_ds.indices)
-        val_indices = np.array(dm.val_ds.indices)
-
-        train_features, train_responses = dm.train_ds.dataset.tensors
-        train_features = train_features.detach().numpy()[train_indices]
-        train_responses = train_responses.detach().numpy()[train_indices]
-        
-        val_features, val_responses = dm.val_ds.dataset.tensors
-        val_features = val_features.detach().numpy()[val_indices]
-        val_responses = val_responses.detach().numpy()[val_indices]
-
-
-        model = FactorizedGaussianProcess(train_features, train_responses, 64, normalize_X=False, normalize_Y=True, kernel=kernel, verbose=True)
-        print(model)
-        print("optimizing...")
-
-        model.optimize()
-        print(model)
-    
-        countries = ("Germany", "Spain", "Italy", "Japan", "Australia", "Argentina")
-        plot_countries_all_aggegration_types(model, path=f"./FactorizedGaussianProcesses/version_{version}/{n}_", countries=countries, dataset=dataset)
-        
-        validation_means, validation_vars = model.predict(val_features, aggregation_type="all")    # (8, x.shape[0], 1)
-        for aggregation_index, aggregation_type in enumerate(aggregation_types):
-            val_pred_mean = validation_means[aggregation_index]
-            val_pred_var = validation_vars[aggregation_index]
-
-            mse = ((val_pred_mean - val_responses)**2).mean()
-            score = 1 - (((val_responses - val_pred_mean) ** 2).sum() / ((val_responses - val_responses.mean()) ** 2).sum())
-
-            mask = (val_pred_var == 0) & (val_pred_mean == val_responses)
-            chi_square = ((val_pred_mean - val_responses)**2 / val_pred_var)
-            chi_square[mask] = 0
-            chi_square = chi_square.sum()
-
-            print(f"{n}\t{aggregation_type}\t{mse}\t{chi_square}\t{score}")
-    
-
 
 if __name__ == "__main__":
     main()
     # test()
     # compare_kernels()
-    # test_locally_periodic_kernel()
